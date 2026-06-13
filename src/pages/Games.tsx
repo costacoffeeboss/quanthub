@@ -18,7 +18,7 @@ const games = [
   {
     id: 'adverse-selection',
     name: 'Adverse Selection',
-    blurb: 'Make markets against informed and noise flow. Spread capture minus toxicity is your P&L.',
+    blurb: 'Live-quote spice against informed and noise flow. Read the tape, steer your fair, beat the hidden walk.',
   },
   {
     id: 'hidden-dice',
