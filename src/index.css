@@ -1,0 +1,73 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #101114;
+  --color-panel: #17181d;
+  --color-steel: #23252c;
+  --color-fg: #c9cdd6;
+  --color-muted: #7e838f;
+  --color-violet: #6d4aff;
+  --color-violet-light: #a78bfa;
+  --color-plum: #2a1b4d;
+  --color-open: #3ddc97;
+  --color-soon: #f5b14c;
+  --color-closed: #e5484d;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --animate-ticker: ticker 70s linear infinite;
+
+  @keyframes ticker {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(-50%);
+    }
+  }
+}
+
+html {
+  scrollbar-gutter: stable;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-violet-light);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Metallic gradient wordmark — the one signature flourish besides the ticker. */
+.wordmark {
+  background: linear-gradient(
+    110deg,
+    #e8eaf0 0%,
+    #c9cdd6 30%,
+    #a78bfa 55%,
+    #c9cdd6 80%,
+    #e8eaf0 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-ticker {
+    animation: none;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
