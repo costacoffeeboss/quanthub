@@ -5,11 +5,14 @@ import {
   gradeWithApi,
   gradeWithEngine,
   loadEngine,
-  webgpuAvailable,
+  gpuCapabilities,
+  recommendedModel,
+  isShaderError,
   WEBLLM_MODELS,
   OPENAI_PRESETS,
   ANTHROPIC_MODELS,
   type ApiProvider,
+  type GpuCaps,
   type Grade,
 } from '../lib/grading';
 
@@ -79,8 +82,26 @@ export default function Mock() {
 
   const [bestScore, setBestScore] = usePersistentState<number | null>('qh:hiscore:mock', null);
 
-  const gpu = webgpuAvailable();
+  const [caps, setCaps] = useState<GpuCaps>({ available: false, f16: false });
   const set = (patch: Partial<GradingSettings>) => setSettings((s) => ({ ...s, ...patch }));
+
+  // models this GPU can actually run (f16 models need the shader-f16 feature)
+  const availableModels = WEBLLM_MODELS.filter((m) => caps.f16 || !m.f16);
+
+  // detect WebGPU capabilities once; keep the selected model to one that will run
+  useEffect(() => {
+    let cancelled = false;
+    gpuCapabilities().then((c) => {
+      if (cancelled) return;
+      setCaps(c);
+      const runnable: string[] = WEBLLM_MODELS.filter((m) => c.f16 || !m.f16).map((m) => m.id);
+      setSettings((s) => (runnable.includes(s.webllmModel) ? s : { ...s, webllmModel: recommendedModel(c) }));
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // total timer
   useEffect(() => {
@@ -127,7 +148,7 @@ export default function Mock() {
   }
 
   async function runGrading(toGrade: Result[]) {
-    if (settings.backend === 'self' || (settings.backend === 'webllm' && !gpu)) {
+    if (settings.backend === 'self' || (settings.backend === 'webllm' && !caps.available)) {
       setSelfMode(true);
       setPhase('report');
       return;
@@ -178,7 +199,12 @@ export default function Mock() {
       setBestScore((b) => (b === null || pct > b ? pct : b));
       setPhase('report');
     } catch (e) {
-      setGradeError(e instanceof Error ? e.message : 'Grading failed.');
+      const raw = e instanceof Error ? e.message : 'Grading failed.';
+      const msg =
+        settings.backend === 'webllm' && isShaderError(raw)
+          ? `Your GPU couldn't compile this model (${raw}). Try a "compatible" (f32) model in the list, a smaller one, or a key/self-grade.`
+          : raw;
+      setGradeError(msg);
       setSelfMode(true);
       setResults(toGrade);
       setPhase('report');
@@ -194,7 +220,7 @@ export default function Mock() {
 
   // ---------- config ----------
   if (phase === 'config') {
-    const webllmDisabled = !gpu;
+    const webllmDisabled = !caps.available;
     return (
       <div className="space-y-6 max-w-2xl">
         <header>
@@ -248,12 +274,19 @@ export default function Mock() {
               </span>
             </label>
             {settings.backend === 'webllm' && !webllmDisabled && (
-              <label className="block pl-9">
-                <span className="font-mono text-[11px] text-muted">Model</span>
-                <select className={`${inputCls} mt-1`} value={settings.webllmModel} onChange={(e) => set({ webllmModel: e.target.value })}>
-                  {WEBLLM_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-                </select>
-              </label>
+              <div className="pl-9 space-y-1">
+                <label className="block">
+                  <span className="font-mono text-[11px] text-muted">Model</span>
+                  <select className={`${inputCls} mt-1`} value={settings.webllmModel} onChange={(e) => set({ webllmModel: e.target.value })}>
+                    {availableModels.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+                  </select>
+                </label>
+                {!caps.f16 && (
+                  <p className="font-mono text-[10px] text-soon">
+                    Your GPU doesn&apos;t support half-precision (f16) shaders, so only full-precision (f32) models are shown — they&apos;re a bit larger but run reliably here.
+                  </p>
+                )}
+              </div>
             )}
 
             {/* API key */}

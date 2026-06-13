@@ -80,14 +80,49 @@ function parseGrade(text: string): Grade {
 
 // ---------------- WebLLM (in-browser) ----------------
 
+/**
+ * f16 models are smaller/faster but require the WebGPU `shader-f16` feature,
+ * which many GPUs/drivers lack (→ "Invalid ShaderModule" compile errors).
+ * f32 models are larger but run on essentially any WebGPU device.
+ */
 export const WEBLLM_MODELS = [
-  { id: 'Qwen2.5-3B-Instruct-q4f16_1-MLC', label: 'Qwen2.5 3B — recommended (~2 GB)' },
-  { id: 'Llama-3.2-3B-Instruct-q4f16_1-MLC', label: 'Llama 3.2 3B (~1.8 GB)' },
-  { id: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC', label: 'Qwen2.5 1.5B — faster (~1.2 GB)' },
+  { id: 'Qwen2.5-3B-Instruct-q4f16_1-MLC', label: 'Qwen2.5 3B · fast (~2 GB, needs f16 GPU)', f16: true },
+  { id: 'Llama-3.2-3B-Instruct-q4f16_1-MLC', label: 'Llama 3.2 3B (~1.8 GB, needs f16 GPU)', f16: true },
+  { id: 'Qwen2.5-1.5B-Instruct-q4f32_1-MLC', label: 'Qwen2.5 1.5B · most compatible (~1.9 GB)', f16: false },
+  { id: 'Llama-3.2-3B-Instruct-q4f32_1-MLC', label: 'Llama 3.2 3B · compatible (~2.3 GB)', f16: false },
+  { id: 'Llama-3.2-1B-Instruct-q4f32_1-MLC', label: 'Llama 3.2 1B · smallest (~1.1 GB)', f16: false },
 ] as const;
+
+export interface GpuCaps {
+  available: boolean;
+  f16: boolean;
+}
 
 export function webgpuAvailable(): boolean {
   return typeof navigator !== 'undefined' && 'gpu' in navigator;
+}
+
+/** Probe the WebGPU adapter for shader-f16 support. */
+export async function gpuCapabilities(): Promise<GpuCaps> {
+  if (!webgpuAvailable()) return { available: false, f16: false };
+  try {
+    // @ts-expect-error navigator.gpu typing varies by lib version
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) return { available: false, f16: false };
+    return { available: true, f16: adapter.features.has('shader-f16') };
+  } catch {
+    return { available: false, f16: false };
+  }
+}
+
+/** The model to default to given GPU capabilities. */
+export function recommendedModel(caps: GpuCaps): string {
+  if (caps.f16) return 'Qwen2.5-3B-Instruct-q4f16_1-MLC';
+  return 'Qwen2.5-1.5B-Instruct-q4f32_1-MLC';
+}
+
+export function isShaderError(msg: string): boolean {
+  return /shader|f16|ShaderModule|compute stage/i.test(msg);
 }
 
 interface ChatEngine {
