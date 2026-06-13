@@ -4,50 +4,53 @@ import { usePersistentState } from '../lib/storage';
 /**
  * Live market-making under adverse selection. You quote a two-way market in
  * "spice" whose true price is a hidden random walk with jumping volatility.
- * You never see true — you read it from a noisy, laggy bot order book and the
- * trade tape, keep your fair honest, and choose a spread that fits the regime:
- * tight in calm to capture flow, wide in storms or the informed run you over.
  *
- * You compete inside the book. You only get filled when your quote is the best
- * near the true price; quote miles away and nobody trades with you. When your
- * quote is on the wrong side of true, takers eat MORE size the more you're off
- * (adverse selection), draining your quoted size until you reload.
+ * The market is a real limit order book. Bots post depth around a noisy, laggy
+ * view of true; you rest your own bid/ask inside it. Market orders consume the
+ * book inside-out — big ones pay through several levels at once — and you only
+ * trade when your quote is at the best price, with priority at your own level.
+ * Quote on the wrong side of true and informed flow eats through you in size;
+ * leave a stale quote and a fast move runs you over (your bid gets bought as
+ * the market gaps down). Cross the spread yourself and you trade as the taker.
  *
  * Controls (hold the letter, tap an arrow — bare arrows move fair):
  *   F + up/down  — fair value  (+/- 0.1)
  *   S + up/down  — spread       (up wider, down tighter)
  *   Q + up/down  — quote size   (+/- 1, also reloads)
  *   R            — reload both sides to full quoted size
- * Lean your fair to flatten inventory — there's no position limit, but you're
- * scored on the risk you ran (inventory weighted by volatility).
+ * Lean your fair to flatten inventory — no position limit, but you're scored
+ * on the risk you ran (inventory weighted by volatility).
  */
 
-const DT = 100; // sim tick, ms
+const DT = 100;
 const TICK = 0.1;
 const START_PRICE = 100;
+const DEPTH = 14; // bot levels maintained each side
+const VIEW = 9; // ladder levels shown each side of the inside
 
 type Diff = 'easy' | 'med' | 'hard';
 
 interface Cfg {
-  phi: number; // informed fraction of taker flow
-  sigmaMax: number; // top-of-range true-price vol (units/sec) at vol level 1
-  lamMax: number; // taker arrivals/sec at vol level 1
-  mBase: number; // bot inside half-spread floor
+  phi: number; // informed fraction
+  sigmaMax: number; // top-of-range true vol (units/sec)
+  lamMax: number; // taker arrivals/sec at vol 1
+  mBase: number; // bot half-spread floor
   mK: number; // extra bot half-spread per unit vol
   sizeK: number; // informed size = edge / sizeK
-  maxInf: number; // informed max lots per order
+  maxInf: number; // informed cap per order
   noiseScale: number; // book read noise
+  baseSize: number; // inside bot depth
+  refill: number; // lots replenished per level per tick
 }
 
 const CFG: Record<Diff, Cfg> = {
-  easy: { phi: 0.3, sigmaMax: 0.6, lamMax: 2.0, mBase: 0.3, mK: 0.9, sizeK: 0.35, maxInf: 8, noiseScale: 0.15 },
-  med: { phi: 0.45, sigmaMax: 0.9, lamMax: 2.5, mBase: 0.25, mK: 1.0, sizeK: 0.28, maxInf: 10, noiseScale: 0.2 },
-  hard: { phi: 0.6, sigmaMax: 1.3, lamMax: 3.0, mBase: 0.2, mK: 1.1, sizeK: 0.22, maxInf: 12, noiseScale: 0.28 },
+  easy: { phi: 0.3, sigmaMax: 0.5, lamMax: 1.5, mBase: 0.2, mK: 0.5, sizeK: 0.18, maxInf: 10, noiseScale: 0.15, baseSize: 8, refill: 2 },
+  med: { phi: 0.45, sigmaMax: 0.8, lamMax: 2.0, mBase: 0.2, mK: 0.6, sizeK: 0.15, maxInf: 12, noiseScale: 0.2, baseSize: 7, refill: 1 },
+  hard: { phi: 0.6, sigmaMax: 1.2, lamMax: 2.5, mBase: 0.15, mK: 0.7, sizeK: 0.12, maxInf: 15, noiseScale: 0.28, baseSize: 6, refill: 1 },
 };
 
 const SIGMA_MIN = 0.05;
-const LAM_MIN = 0.15;
-const LEVELS = 5; // book levels shown per side
+const LAM_MIN = 0.1;
 
 const btnCls =
   'font-mono text-sm px-5 py-2.5 rounded bg-violet text-white hover:bg-violet-light hover:text-bg transition-colors disabled:opacity-40';
@@ -55,14 +58,12 @@ const btn2Cls = 'font-mono text-sm px-4 py-2 rounded border border-violet/60 tex
 
 const r1 = (v: number) => Math.round(v * 10) / 10;
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+const ti = (px: number) => Math.round(px * 10); // price → tick index
+const px = (t: number) => t / 10;
 
 let _spare: number | null = null;
 function randn(): number {
-  if (_spare !== null) {
-    const s = _spare;
-    _spare = null;
-    return s;
-  }
+  if (_spare !== null) { const s = _spare; _spare = null; return s; }
   let u = 0, v = 0;
   while (u === 0) u = Math.random();
   while (v === 0) v = Math.random();
@@ -70,36 +71,19 @@ function randn(): number {
   _spare = mag * Math.sin(2 * Math.PI * v);
   return mag * Math.cos(2 * Math.PI * v);
 }
-
 function poisson(lam: number): number {
   if (lam <= 0) return 0;
   const L = Math.exp(-lam);
   let k = 0, p = 1;
-  do {
-    k++;
-    p *= Math.random();
-  } while (p > L);
+  do { k++; p *= Math.random(); } while (p > L);
   return k - 1;
 }
-
 const noiseSize = () => 1 + Math.floor(Math.random() * Math.random() * 5);
 
 type Control = 'fair' | 'spread' | 'size';
 
-interface TapeRow {
-  id: number;
-  t: number;
-  side: 'buy' | 'sell'; // aggressor side
-  price: number;
-  size: number;
-  mine: boolean;
-}
-
-interface Dot {
-  t: number;
-  price: number;
-  mine: boolean;
-}
+interface TapeRow { id: number; t: number; side: 'buy' | 'sell'; price: number; size: number; mine: boolean; }
+interface Dot { t: number; price: number; mine: boolean; }
 
 interface Engine {
   cfg: Cfg;
@@ -107,16 +91,16 @@ interface Engine {
   elapsed: number;
   truePx: number;
   prevTrue: number;
-  botAnchor: number; // laggy follower of true — centre of the bot book
-  bookNoise: number; // slow OU noise on the displayed book
-  volLevel: number; // 0..1, hidden
-  dwellLeft: number; // ms until next vol jump
-  botAskSz: number[];
-  botBidSz: number[];
+  botAnchor: number;
+  bookNoise: number;
+  volLevel: number;
+  dwellLeft: number;
+  bid: Map<number, number>; // tick → bot bid size
+  ask: Map<number, number>; // tick → bot ask size
   fair: number;
-  hs: number; // half-spread
-  size: number; // quoted size
-  bidRem: number; // remaining size on each side
+  hs: number;
+  size: number;
+  bidRem: number;
   askRem: number;
   cash: number;
   pos: number;
@@ -136,220 +120,285 @@ interface Engine {
   nextId: number;
 }
 
-function freshEngine(diff: Diff, durationMs: number): Engine {
-  const sizes = () => Array.from({ length: LEVELS }, () => 3 + Math.floor(Math.random() * 8));
-  return {
-    cfg: CFG[diff],
-    duration: durationMs,
-    elapsed: 0,
-    truePx: START_PRICE,
-    prevTrue: START_PRICE,
-    botAnchor: START_PRICE,
-    bookNoise: 0,
-    volLevel: 0.3,
-    dwellLeft: 8000 + Math.random() * 12000,
-    botAskSz: sizes(),
-    botBidSz: sizes(),
-    fair: START_PRICE,
-    hs: 0.4,
-    size: 5,
-    bidRem: 5,
-    askRem: 5,
-    cash: 0,
-    pos: 0,
-    spreadPnl: 0,
-    adversePnl: 0,
-    carryPnl: 0,
-    riskExp: 0,
-    peakPos: 0,
-    absErrSum: 0,
-    absErrN: 0,
-    fairHist: [START_PRICE],
-    trueHist: [START_PRICE],
-    tHist: [0],
-    dots: [],
-    tape: [],
-    armed: null,
-    nextId: 1,
-  };
+function buildBook(e: Engine, mid: number, M: number) {
+  const base = e.cfg.baseSize;
+  const askStart = Math.round((mid + M) / TICK);
+  const bidStart = Math.round((mid - M) / TICK);
+  for (let k = 0; k < DEPTH; k++) {
+    const sz = Math.max(1, Math.round(base * Math.pow(0.8, k)));
+    e.ask.set(askStart + k, sz);
+    e.bid.set(bidStart - k, sz);
+  }
 }
 
-// derived book centre + edges (what the bots show / where they execute)
-function bookGeom(e: Engine) {
-  const displayAnchor = e.botAnchor + e.bookNoise;
-  const M = e.cfg.mBase + e.cfg.mK * e.volLevel;
-  return { displayAnchor, M, bestBotAsk: r1(displayAnchor + M), bestBotBid: r1(displayAnchor - M) };
+function freshEngine(diff: Diff, durationMs: number): Engine {
+  const e: Engine = {
+    cfg: CFG[diff], duration: durationMs, elapsed: 0,
+    truePx: START_PRICE, prevTrue: START_PRICE, botAnchor: START_PRICE, bookNoise: 0,
+    volLevel: 0.3, dwellLeft: 8000 + Math.random() * 12000,
+    bid: new Map(), ask: new Map(),
+    fair: START_PRICE, hs: 0.3, size: 5, bidRem: 5, askRem: 5,
+    cash: 0, pos: 0, spreadPnl: 0, adversePnl: 0, carryPnl: 0,
+    riskExp: 0, peakPos: 0, absErrSum: 0, absErrN: 0,
+    fairHist: [START_PRICE], trueHist: [START_PRICE], tHist: [0],
+    dots: [], tape: [], armed: null, nextId: 1,
+  };
+  buildBook(e, START_PRICE, CFG[diff].mBase + CFG[diff].mK * 0.3);
+  return e;
+}
+
+// best bot levels (exclude the user)
+function bestBotAskTick(e: Engine): number | null {
+  let m = Infinity;
+  for (const [k, v] of e.ask) if (v >= 1 && k < m) m = k;
+  return isFinite(m) ? m : null;
+}
+function bestBotBidTick(e: Engine): number | null {
+  let m = -Infinity;
+  for (const [k, v] of e.bid) if (v >= 1 && k > m) m = k;
+  return isFinite(m) ? m : null;
+}
+// best including the user's resting quote
+function bestAskTickC(e: Engine): number | null {
+  let m = bestBotAskTick(e) ?? Infinity;
+  if (e.askRem >= 1) m = Math.min(m, ti(e.fair + e.hs));
+  return isFinite(m) ? m : null;
+}
+function bestBidTickC(e: Engine): number | null {
+  let m = bestBotBidTick(e) ?? -Infinity;
+  if (e.bidRem >= 1) m = Math.max(m, ti(e.fair - e.hs));
+  return isFinite(m) ? m : null;
 }
 
 function pushTape(e: Engine, side: 'buy' | 'sell', price: number, size: number, mine: boolean) {
+  if (size <= 0) return;
   e.tape.push({ id: e.nextId++, t: e.elapsed, side, price, size, mine });
-  if (e.tape.length > 120) e.tape.splice(0, e.tape.length - 120);
+  if (e.tape.length > 140) e.tape.splice(0, e.tape.length - 140);
   e.dots.push({ t: e.elapsed, price, mine });
   if (e.dots.length > 500) e.dots.splice(0, e.dots.length - 500);
 }
 
-/** Advance the sim by one DT. Mutates in place. */
+function bucket(e: Engine, ex: number) {
+  if (ex >= 0) e.spreadPnl += ex; else e.adversePnl += ex;
+}
+
+// external market order matches the combined book inside-out (user has priority at their level)
+function matchExternal(e: Engine, side: 'buy' | 'sell', size: number, limit: number) {
+  let rem = size, guard = 0;
+  while (rem > 0 && guard++ < 60) {
+    if (side === 'buy') {
+      const t = bestAskTickC(e); if (t === null) break;
+      const p = px(t); if (p > limit + 1e-9) break;
+      const botSz = e.ask.get(t) ?? 0;
+      const userHere = e.askRem >= 1 && ti(e.fair + e.hs) === t ? e.askRem : 0;
+      const avail = botSz + userHere; if (avail < 1) break;
+      const take = Math.min(rem, avail);
+      const userFill = Math.min(userHere, take);
+      if (userFill > 0) {
+        e.cash += userFill * p; e.pos -= userFill; e.askRem -= userFill;
+        bucket(e, userFill * (p - e.truePx));
+      }
+      const botFill = take - userFill;
+      if (botFill > 0) { const nv = botSz - botFill; if (nv < 1) e.ask.delete(t); else e.ask.set(t, nv); }
+      pushTape(e, 'buy', p, take, userFill > 0);
+      rem -= take;
+    } else {
+      const t = bestBidTickC(e); if (t === null) break;
+      const p = px(t); if (p < limit - 1e-9) break;
+      const botSz = e.bid.get(t) ?? 0;
+      const userHere = e.bidRem >= 1 && ti(e.fair - e.hs) === t ? e.bidRem : 0;
+      const avail = botSz + userHere; if (avail < 1) break;
+      const take = Math.min(rem, avail);
+      const userFill = Math.min(userHere, take);
+      if (userFill > 0) {
+        e.cash -= userFill * p; e.pos += userFill; e.bidRem -= userFill;
+        bucket(e, userFill * (e.truePx - p));
+      }
+      const botFill = take - userFill;
+      if (botFill > 0) { const nv = botSz - botFill; if (nv < 1) e.bid.delete(t); else e.bid.set(t, nv); }
+      pushTape(e, 'sell', p, take, userFill > 0);
+      rem -= take;
+    }
+  }
+}
+
+// resolve the case where the user's resting quote is (or becomes) marketable — they trade as taker
+function resolveUserCross(e: Engine) {
+  let guard = 0;
+  while (e.bidRem >= 1 && guard++ < 60) {
+    const ut = ti(e.fair - e.hs);
+    const bt = bestBotAskTick(e); if (bt === null || bt > ut) break;
+    const p = px(bt); const botSz = e.ask.get(bt) ?? 0;
+    if (botSz < 1) { e.ask.delete(bt); continue; }
+    const take = Math.min(e.bidRem, botSz);
+    e.cash -= take * p; e.pos += take; e.bidRem -= take;
+    bucket(e, take * (e.truePx - p));
+    const nv = botSz - take; if (nv < 1) e.ask.delete(bt); else e.ask.set(bt, nv);
+    pushTape(e, 'buy', p, take, true);
+  }
+  guard = 0;
+  while (e.askRem >= 1 && guard++ < 60) {
+    const ut = ti(e.fair + e.hs);
+    const bt = bestBotBidTick(e); if (bt === null || bt < ut) break;
+    const p = px(bt); const botSz = e.bid.get(bt) ?? 0;
+    if (botSz < 1) { e.bid.delete(bt); continue; }
+    const take = Math.min(e.askRem, botSz);
+    e.cash += take * p; e.pos -= take; e.askRem -= take;
+    bucket(e, take * (p - e.truePx));
+    const nv = botSz - take; if (nv < 1) e.bid.delete(bt); else e.bid.set(bt, nv);
+    pushTape(e, 'sell', p, take, true);
+  }
+}
+
+function takerOrder(e: Engine) {
+  const informed = Math.random() < e.cfg.phi;
+  const aTick = bestAskTickC(e), bTick = bestBidTickC(e);
+  if (aTick === null || bTick === null) return;
+  const bestAsk = px(aTick), bestBid = px(bTick);
+  if (informed) {
+    const buyEdge = e.truePx - bestAsk;
+    const sellEdge = bestBid - e.truePx;
+    if (buyEdge <= 0.05 && sellEdge <= 0.05) return;
+    if (buyEdge >= sellEdge) {
+      const want = clamp(Math.round(buyEdge / e.cfg.sizeK), 1, e.cfg.maxInf);
+      matchExternal(e, 'buy', want, e.truePx);
+    } else {
+      const want = clamp(Math.round(sellEdge / e.cfg.sizeK), 1, e.cfg.maxInf);
+      matchExternal(e, 'sell', want, e.truePx);
+    }
+  } else {
+    if (Math.random() < 0.5) matchExternal(e, 'buy', noiseSize(), bestAsk + 0.4);
+    else matchExternal(e, 'sell', noiseSize(), bestBid - 0.4);
+  }
+}
+
+function refreshBook(e: Engine, M: number) {
+  const mid = e.botAnchor + e.bookNoise;
+  const base = e.cfg.baseSize, ref = e.cfg.refill;
+  const askStart = Math.round((mid + M) / TICK);
+  const bidStart = Math.round((mid - M) / TICK);
+  const wantAsk = new Map<number, number>(), wantBid = new Map<number, number>();
+  for (let k = 0; k < DEPTH; k++) {
+    wantAsk.set(askStart + k, Math.max(1, Math.round(base * Math.pow(0.8, k))));
+    wantBid.set(bidStart - k, Math.max(1, Math.round(base * Math.pow(0.8, k))));
+  }
+  const reconcile = (cur: Map<number, number>, want: Map<number, number>) => {
+    for (const [k, target] of want) {
+      const c = cur.get(k) ?? 0;
+      if (c < target) cur.set(k, Math.min(target, c + ref));
+      else if (c > target) cur.set(k, Math.max(target, c - 1));
+    }
+    for (const k of [...cur.keys()]) {
+      if (!want.has(k)) { const nv = (cur.get(k) ?? 0) - 2; if (nv < 1) cur.delete(k); else cur.set(k, nv); }
+    }
+  };
+  reconcile(e.ask, wantAsk);
+  reconcile(e.bid, wantBid);
+}
+
 function step(e: Engine) {
   const dt = DT / 1000;
   e.elapsed += DT;
   const c = e.cfg;
 
-  // 1) volatility regime — holds, then jumps to a new level
   e.dwellLeft -= DT;
-  if (e.dwellLeft <= 0) {
-    e.volLevel = clamp(0.1 + Math.random() * 0.9, 0.1, 1);
-    e.dwellLeft = 8000 + Math.random() * 22000;
-  }
+  if (e.dwellLeft <= 0) { e.volLevel = clamp(0.1 + Math.random() * 0.9, 0.1, 1); e.dwellLeft = 8000 + Math.random() * 22000; }
   const sigma = SIGMA_MIN + e.volLevel * (c.sigmaMax - SIGMA_MIN);
+  const M = c.mBase + c.mK * e.volLevel;
 
-  // 2) true random walk
   e.truePx = r1(e.truePx + randn() * sigma * Math.sqrt(dt));
-  // carry on inventory held through the move (pos before this tick's trades)
   e.carryPnl += e.pos * (e.truePx - e.prevTrue);
   e.prevTrue = e.truePx;
 
-  // 3) book follows true with lag + slow noise; sizes drift
   e.botAnchor += (e.truePx - e.botAnchor) * 0.06;
   e.bookNoise = e.bookNoise * 0.9 + randn() * (0.05 + 0.25 * e.volLevel) * c.noiseScale * 2;
-  for (let i = 0; i < LEVELS; i++) {
-    e.botAskSz[i] = clamp(e.botAskSz[i] + Math.round(randn()), 1, 16);
-    e.botBidSz[i] = clamp(e.botBidSz[i] + Math.round(randn()), 1, 16);
-  }
+  refreshBook(e, M);
 
-  // 4) risk + tracking accounting
   e.riskExp += Math.abs(e.pos) * e.volLevel * dt;
   e.peakPos = Math.max(e.peakPos, Math.abs(e.pos));
   e.absErrSum += Math.abs(e.fair - e.truePx);
   e.absErrN += 1;
 
-  // 5) history
   e.fairHist.push(e.fair);
   e.trueHist.push(e.truePx);
   e.tHist.push(e.elapsed);
 
-  // 6) taker arrivals — rate scales with vol (bursty in storms, sparse in calm)
+  resolveUserCross(e); // market may have moved through a stale quote
+
   const lam = LAM_MIN + e.volLevel * (c.lamMax - LAM_MIN);
   const n = poisson(lam * dt);
   for (let i = 0; i < n; i++) takerOrder(e);
 }
 
-function takerOrder(e: Engine) {
-  const { M, bestBotAsk, bestBotBid } = bookGeom(e);
-  const userAsk = r1(e.fair + e.hs);
-  const userBid = r1(e.fair - e.hs);
-  const informed = Math.random() < e.cfg.phi;
+const fmtT = (ms: number) => { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 
-  // choose side
-  let side: 'buy' | 'sell';
-  if (informed) {
-    const effAsk = e.askRem > 0 ? Math.min(userAsk, bestBotAsk) : bestBotAsk;
-    const effBid = e.bidRem > 0 ? Math.max(userBid, bestBotBid) : bestBotBid;
-    const buyEdge = e.truePx - effAsk; // worth buying if offers are below true
-    const sellEdge = effBid - e.truePx; // worth selling if bids are above true
-    if (buyEdge <= 0.05 && sellEdge <= 0.05) return; // nothing to pick off
-    side = buyEdge >= sellEdge ? 'buy' : 'sell';
-  } else {
-    side = Math.random() < 0.5 ? 'buy' : 'sell';
-  }
+// ── Order book ladder (price-axis DOM) ──
+function Ladder({ e }: { e: Engine }) {
+  const aT = bestAskTickC(e), bT = bestBidTickC(e);
+  if (aT === null || bT === null) return null;
+  const gap = aT - bT;
+  const collapse = gap > 13;
+  const userBidT = e.bidRem >= 1 ? ti(e.fair - e.hs) : null;
+  const userAskT = e.askRem >= 1 ? ti(e.fair + e.hs) : null;
 
-  if (side === 'buy') {
-    // taker lifts the best offer
-    const userBest = e.askRem > 0 && userAsk <= bestBotAsk;
-    const execPx = userBest ? userAsk : bestBotAsk;
-    const edge = e.truePx - execPx;
-    if (informed && edge <= 0.05) return; // informed won't overpay vs true
-    const want = informed ? clamp(Math.round(Math.max(edge, 0) / e.cfg.sizeK), 1, e.cfg.maxInf) : noiseSize();
-    if (userBest) {
-      const fill = Math.min(e.askRem, want);
-      e.cash += fill * userAsk;
-      e.pos -= fill;
-      e.askRem -= fill;
-      const ex = fill * (userAsk - e.truePx);
-      if (ex >= 0) e.spreadPnl += ex; else e.adversePnl += ex;
-      pushTape(e, 'buy', userAsk, fill, true);
-      const left = want - fill;
-      if (left > 0) pushTape(e, 'buy', bestBotAsk, left, false);
-    } else {
-      pushTape(e, 'buy', bestBotAsk, want, false);
+  type Row = { t: number; bidBot: number; bidYou: number; askBot: number; askYou: number; inside: boolean };
+  const rows: Array<Row | { gap: true; spread: number }> = [];
+  for (let t = aT + VIEW; t >= bT - VIEW; t--) {
+    if (collapse && t < aT && t > bT) {
+      if (t === aT - 1) rows.push({ gap: true, spread: px(aT) - px(bT) });
+      continue;
     }
-  } else {
-    const userBest = e.bidRem > 0 && userBid >= bestBotBid;
-    const execPx = userBest ? userBid : bestBotBid;
-    const edge = execPx - e.truePx;
-    if (informed && edge <= 0.05) return;
-    const want = informed ? clamp(Math.round(Math.max(edge, 0) / e.cfg.sizeK), 1, e.cfg.maxInf) : noiseSize();
-    if (userBest) {
-      const fill = Math.min(e.bidRem, want);
-      e.cash -= fill * userBid;
-      e.pos += fill;
-      e.bidRem -= fill;
-      const ex = fill * (e.truePx - userBid);
-      if (ex >= 0) e.spreadPnl += ex; else e.adversePnl += ex;
-      pushTape(e, 'sell', userBid, fill, true);
-      const left = want - fill;
-      if (left > 0) pushTape(e, 'sell', bestBotBid, left, false);
-    } else {
-      pushTape(e, 'sell', bestBotBid, want, false);
-    }
+    rows.push({
+      t,
+      bidBot: e.bid.get(t) ?? 0,
+      bidYou: userBidT === t ? e.bidRem : 0,
+      askBot: e.ask.get(t) ?? 0,
+      askYou: userAskT === t ? e.askRem : 0,
+      inside: t === aT || t === bT,
+    });
   }
-  // suppress unused-var lint for M in some toolchains
-  void M;
-}
-
-const fmtT = (ms: number) => {
-  const s = Math.floor(ms / 1000);
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-};
-
-// ── Order book ladder ──
-function OrderBook({ e }: { e: Engine }) {
-  const { displayAnchor, M, bestBotAsk, bestBotBid } = bookGeom(e);
-  const userAsk = r1(e.fair + e.hs);
-  const userBid = r1(e.fair - e.hs);
-
-  type Row = { price: number; size: number; mine: boolean };
-  const asks: Row[] = [];
-  const bids: Row[] = [];
-  for (let k = 0; k < LEVELS; k++) {
-    asks.push({ price: r1(bestBotAsk + k * 0.2), size: e.botAskSz[k], mine: false });
-    bids.push({ price: r1(bestBotBid - k * 0.2), size: e.botBidSz[k], mine: false });
-  }
-  if (e.askRem > 0) asks.push({ price: userAsk, size: e.askRem, mine: true });
-  if (e.bidRem > 0) bids.push({ price: userBid, size: e.bidRem, mine: true });
-  asks.sort((a, b) => a.price - b.price);
-  bids.sort((a, b) => b.price - a.price);
-  const askRows = asks.slice(0, LEVELS).reverse(); // highest on top
-  const bidRows = bids.slice(0, LEVELS);
-  const maxSz = Math.max(8, ...askRows.map((r) => r.size), ...bidRows.map((r) => r.size));
-
-  const Row = ({ r, kind }: { r: Row; kind: 'ask' | 'bid' }) => {
-    const col = kind === 'ask' ? '#e5484d' : '#3ddc97';
-    return (
-      <div className={`relative flex items-center justify-between px-2 py-[3px] font-mono text-[11px] ${r.mine ? 'bg-violet/25 ring-1 ring-violet/60' : ''}`}>
-        <div className="absolute inset-y-0 right-0" style={{ width: `${(r.size / maxSz) * 100}%`, background: col, opacity: 0.12 }} />
-        <span className={r.mine ? 'text-violet-light font-bold' : ''} style={{ color: r.mine ? undefined : col }}>
-          {r.mine ? '▸ ' : ''}{r.price.toFixed(1)}
-        </span>
-        <span className="relative text-muted">{r.size}</span>
-      </div>
-    );
-  };
+  const maxSz = Math.max(8, ...rows.flatMap((r) => ('gap' in r ? [] : [r.bidBot + r.bidYou, r.askBot + r.askYou])));
 
   return (
     <div className="rounded-lg border border-steel bg-panel overflow-hidden">
-      <div className="flex items-center justify-between px-2 py-1 border-b border-steel font-mono text-[10px] uppercase tracking-wide text-muted">
-        <span>Order book</span><span>size</span>
+      <div className="grid grid-cols-3 px-2 py-1 border-b border-steel font-mono text-[10px] uppercase tracking-wide text-muted">
+        <span>Bid</span><span className="text-center">Price</span><span className="text-right">Ask</span>
       </div>
-      <div>{askRows.map((r, i) => <Row key={`a${i}`} r={r} kind="ask" />)}</div>
-      <div className="flex items-center justify-center gap-2 px-2 py-1 border-y border-steel font-mono text-[10px] text-muted">
-        <span>mid {displayAnchor.toFixed(1)}</span><span className="text-steel">·</span><span>spr {(2 * M).toFixed(1)}</span>
+      <div className="font-mono text-[10px] leading-none">
+        {rows.map((r, i) => {
+          if ('gap' in r) {
+            return (
+              <div key={`g${i}`} className="grid grid-cols-3 items-center px-2 py-[3px] text-muted bg-bg/40">
+                <span /><span className="text-center text-[9px]">spread {r.spread.toFixed(1)}</span><span />
+              </div>
+            );
+          }
+          const bidTot = r.bidBot + r.bidYou, askTot = r.askBot + r.askYou;
+          return (
+            <div key={r.t} className={`grid grid-cols-3 items-stretch ${r.inside ? 'bg-steel/40' : ''}`}>
+              <div className="relative flex items-center justify-end pr-2 py-[2px]">
+                {bidTot > 0 && <div className="absolute inset-y-0 right-0" style={{ width: `${(bidTot / maxSz) * 100}%`, background: '#3ddc97', opacity: 0.12 }} />}
+                <span className="relative">
+                  {r.bidBot > 0 && <span className="text-open">{r.bidBot}</span>}
+                  {r.bidYou > 0 && <span className="text-violet-light font-bold">{r.bidBot > 0 ? ' +' : ''}{r.bidYou}</span>}
+                </span>
+              </div>
+              <div className={`text-center py-[2px] ${r.inside ? 'text-fg' : 'text-muted'}`}>{px(r.t).toFixed(1)}</div>
+              <div className="relative flex items-center pl-2 py-[2px]">
+                {askTot > 0 && <div className="absolute inset-y-0 left-0" style={{ width: `${(askTot / maxSz) * 100}%`, background: '#e5484d', opacity: 0.12 }} />}
+                <span className="relative">
+                  {r.askYou > 0 && <span className="text-violet-light font-bold">{r.askYou}{r.askBot > 0 ? '+ ' : ''}</span>}
+                  {r.askBot > 0 && <span className="text-closed">{r.askBot}</span>}
+                </span>
+              </div>
+            </div>
+          );
+        })}
       </div>
-      <div>{bidRows.map((r, i) => <Row key={`b${i}`} r={r} kind="bid" />)}</div>
     </div>
   );
 }
 
-// ── Live chart: fair line + bid/ask band + faint prints, true hidden ──
 function LiveChart({ e }: { e: Engine }) {
   const W = 560, H = 220, pad = { l: 42, r: 10, t: 10, b: 16 };
   const now = e.elapsed, span = 60_000, t0 = Math.max(0, now - span);
@@ -358,7 +407,6 @@ function LiveChart({ e }: { e: Engine }) {
   const ts = e.tHist.slice(s), fs = e.fairHist.slice(s);
   const dots = e.dots.filter((d) => d.t >= t0);
   const bid = r1(e.fair - e.hs), ask = r1(e.fair + e.hs);
-
   const ys = [...fs, bid, ask, ...dots.map((d) => d.price)];
   let lo = Math.min(...ys), hi = Math.max(...ys);
   if (!isFinite(lo) || !isFinite(hi)) { lo = e.fair - 2; hi = e.fair + 2; }
@@ -368,21 +416,13 @@ function LiveChart({ e }: { e: Engine }) {
   const y = (v: number) => pad.t + (1 - (v - lo) / (hi - lo)) * (H - pad.t - pad.b);
   const fairPath = fs.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(ts[i]).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
   const yb = y(bid), ya = y(ask), xr = x(now);
-
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" role="img" aria-label="Your fair value and quotes over the last minute">
       {[0.25, 0.5, 0.75].map((f) => {
         const v = lo + (hi - lo) * f;
-        return (
-          <g key={f}>
-            <line x1={pad.l} x2={W - pad.r} y1={y(v)} y2={y(v)} stroke="#23252c" />
-            <text x={pad.l - 6} y={y(v) + 3} textAnchor="end" fill="#7e838f" fontSize="10" fontFamily="JetBrains Mono, monospace">{v.toFixed(1)}</text>
-          </g>
-        );
+        return (<g key={f}><line x1={pad.l} x2={W - pad.r} y1={y(v)} y2={y(v)} stroke="#23252c" /><text x={pad.l - 6} y={y(v) + 3} textAnchor="end" fill="#7e838f" fontSize="10" fontFamily="JetBrains Mono, monospace">{v.toFixed(1)}</text></g>);
       })}
-      {dots.map((d, i) => (
-        <circle key={i} cx={x(d.t)} cy={y(d.price)} r={d.mine ? 2.4 : 1.5} fill={d.mine ? '#a78bfa' : '#3a3d46'} />
-      ))}
+      {dots.map((d, i) => (<circle key={i} cx={x(d.t)} cy={y(d.price)} r={d.mine ? 2.4 : 1.5} fill={d.mine ? '#a78bfa' : '#3a3d46'} />))}
       <rect x={pad.l} y={Math.min(ya, yb)} width={W - pad.l - pad.r} height={Math.abs(yb - ya)} fill="#6d4aff" opacity="0.07" />
       <line x1={pad.l} x2={W - pad.r} y1={ya} y2={ya} stroke="#3ddc97" strokeWidth="1" strokeDasharray="3 3" opacity="0.6" />
       <line x1={pad.l} x2={W - pad.r} y1={yb} y2={yb} stroke="#e5484d" strokeWidth="1" strokeDasharray="3 3" opacity="0.6" />
@@ -392,7 +432,6 @@ function LiveChart({ e }: { e: Engine }) {
   );
 }
 
-// ── Result chart: fair vs the revealed true price ──
 function ResultChart({ e }: { e: Engine }) {
   const W = 660, H = 280, pad = { l: 46, r: 12, t: 12, b: 24 };
   const n = e.tHist.length;
@@ -407,25 +446,14 @@ function ResultChart({ e }: { e: Engine }) {
   const x = (t: number) => pad.l + (t / tMax) * (W - pad.l - pad.r);
   const y = (v: number) => pad.t + (1 - (v - lo) / (hi - lo)) * (H - pad.t - pad.b);
   const path = (arr: number[]) => idxs.map((i, k) => `${k === 0 ? 'M' : 'L'}${x(e.tHist[i]).toFixed(1)},${y(arr[i]).toFixed(1)}`).join(' ');
-
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" role="img" aria-label="Your fair value versus the true spice price">
-      {[0, 0.5, 1].map((f) => {
-        const v = lo + (hi - lo) * f;
-        return (
-          <g key={f}>
-            <line x1={pad.l} x2={W - pad.r} y1={y(v)} y2={y(v)} stroke="#23252c" />
-            <text x={pad.l - 6} y={y(v) + 3} textAnchor="end" fill="#7e838f" fontSize="10" fontFamily="JetBrains Mono, monospace">{v.toFixed(1)}</text>
-          </g>
-        );
-      })}
+      {[0, 0.5, 1].map((f) => { const v = lo + (hi - lo) * f; return (<g key={f}><line x1={pad.l} x2={W - pad.r} y1={y(v)} y2={y(v)} stroke="#23252c" /><text x={pad.l - 6} y={y(v) + 3} textAnchor="end" fill="#7e838f" fontSize="10" fontFamily="JetBrains Mono, monospace">{v.toFixed(1)}</text></g>); })}
       <path d={path(e.trueHist)} fill="none" stroke="#3ddc97" strokeWidth="2" opacity="0.85" />
       <path d={path(e.fairHist)} fill="none" stroke="#6d4aff" strokeWidth="2.5" />
       <g fontFamily="JetBrains Mono, monospace" fontSize="11">
-        <rect x={W - 180} y={14} width="10" height="10" fill="#6d4aff" />
-        <text x={W - 165} y={23} fill="#a78bfa">your fair</text>
-        <rect x={W - 62} y={14} width="10" height="10" fill="#3ddc97" />
-        <text x={W - 47} y={23} fill="#3ddc97">true</text>
+        <rect x={W - 180} y={14} width="10" height="10" fill="#6d4aff" /><text x={W - 165} y={23} fill="#a78bfa">your fair</text>
+        <rect x={W - 62} y={14} width="10" height="10" fill="#3ddc97" /><text x={W - 47} y={23} fill="#3ddc97">true</text>
       </g>
     </svg>
   );
@@ -452,8 +480,7 @@ export default function AdverseSelection() {
   useEffect(() => {
     if (phase !== 'play') return;
     const id = setInterval(() => {
-      const e = eng.current;
-      if (!e) return;
+      const e = eng.current; if (!e) return;
       step(e);
       if (e.elapsed >= e.duration) { finish(); return; }
       force();
@@ -470,17 +497,15 @@ export default function AdverseSelection() {
       if (c === 'fair') e.fair = r1(e.fair + dir * TICK);
       else if (c === 'spread') e.hs = clamp(r1(e.hs + dir * TICK), TICK, 10);
       else if (c === 'size') { e.size = clamp(e.size + dir, 1, 50); e.bidRem = e.size; e.askRem = e.size; }
+      resolveUserCross(e);
       force();
     };
     const onDown = (ev: KeyboardEvent) => {
       const e = eng.current; if (!e) return;
       const k = ev.key.toLowerCase();
-      if (k === 'f' || k === 's' || k === 'q') {
-        e.armed = k === 'f' ? 'fair' : k === 's' ? 'spread' : 'size';
-        ev.preventDefault(); force();
-      } else if (k === 'r') {
-        e.bidRem = e.size; e.askRem = e.size; ev.preventDefault(); force();
-      } else if (ev.key === 'ArrowUp') { ev.preventDefault(); adjust(1); }
+      if (k === 'f' || k === 's' || k === 'q') { e.armed = k === 'f' ? 'fair' : k === 's' ? 'spread' : 'size'; ev.preventDefault(); force(); }
+      else if (k === 'r') { e.bidRem = e.size; e.askRem = e.size; resolveUserCross(e); ev.preventDefault(); force(); }
+      else if (ev.key === 'ArrowUp') { ev.preventDefault(); adjust(1); }
       else if (ev.key === 'ArrowDown') { ev.preventDefault(); adjust(-1); }
     };
     const onUp = (ev: KeyboardEvent) => {
@@ -495,26 +520,23 @@ export default function AdverseSelection() {
   }, [phase]);
 
   function start() { eng.current = freshEngine(diff, minutes * 60_000); setPhase('play'); }
-
   function finish() {
     const e = eng.current; if (!e) return;
     const finalPnl = e.cash + e.pos * e.truePx;
     setBest((b) => (b === null || finalPnl > b ? Math.round(finalPnl) : b));
     setPhase('done');
   }
-
   function nudge(c: Control, dir: 1 | -1) {
     const e = eng.current; if (!e) return;
     if (c === 'fair') e.fair = r1(e.fair + dir * TICK);
     else if (c === 'spread') e.hs = clamp(r1(e.hs + dir * TICK), TICK, 10);
     else if (c === 'size') { e.size = clamp(e.size + dir, 1, 50); e.bidRem = e.size; e.askRem = e.size; }
-    force();
+    resolveUserCross(e); force();
   }
-  function reload() { const e = eng.current; if (!e) return; e.bidRem = e.size; e.askRem = e.size; force(); }
+  function reload() { const e = eng.current; if (!e) return; e.bidRem = e.size; e.askRem = e.size; resolveUserCross(e); force(); }
 
   const e = eng.current;
 
-  // ── idle ──
   if (phase === 'idle' || !e) {
     return (
       <div className="space-y-4">
@@ -523,29 +545,24 @@ export default function AdverseSelection() {
           <h3 className="font-mono text-lg text-violet-light">Adverse Selection — Live</h3>
           <div className="text-sm text-muted space-y-2 leading-relaxed">
             <p>
-              You make a live market in <strong>spice</strong>. Its true price is hidden and its
-              volatility jumps without warning. Read where the market is from the{' '}
-              <strong>order book</strong> and the <strong>trade tape</strong>, keep your{' '}
+              You make a live market in <strong>spice</strong> on a real order book. Its true price is
+              hidden and its volatility jumps without warning. Read where the market is from the{' '}
+              <strong>book</strong> and the <strong>tape</strong>, keep your{' '}
               <span className="text-violet-light">fair</span> honest, and pick a spread that fits the regime.
             </p>
             <ul className="space-y-1">
-              <li><span className="text-violet">▸</span> You only get filled when your quote is the best near true — quote too wide and you miss everything.</li>
-              <li><span className="text-violet">▸</span> Quote on the wrong side of true and takers eat your size <em>harder</em> the more you're off. Reload with <kbd className="text-violet-light">R</kbd>.</li>
-              <li><span className="text-violet">▸</span> Calm: tighten to capture flow. Storm: widen, or get run over. No position limit — but you're scored on the risk you ran.</li>
+              <li><span className="text-violet">▸</span> You only trade when your quote is at the best price — and you get priority at your own level.</li>
+              <li><span className="text-violet">▸</span> Quote on the wrong side of true and informed flow pays through your size; leave a stale quote and a fast move runs you over.</li>
+              <li><span className="text-violet">▸</span> Calm: tighten to capture flow. Storm: widen, or get swept. No position limit — but you're scored on the risk you ran.</li>
             </ul>
-            <p className="font-mono text-xs text-fg/90">
-              Hold <kbd className="text-violet-light">F</kbd>/<kbd className="text-violet-light">S</kbd>/<kbd className="text-violet-light">Q</kbd> + <kbd className="text-violet-light">↑</kbd>/<kbd className="text-violet-light">↓</kbd> — fair · spread · size. <kbd className="text-violet-light">R</kbd> reloads.
-            </p>
+            <p className="font-mono text-xs text-fg/90">Hold <kbd className="text-violet-light">F</kbd>/<kbd className="text-violet-light">S</kbd>/<kbd className="text-violet-light">Q</kbd> + <kbd className="text-violet-light">↑</kbd>/<kbd className="text-violet-light">↓</kbd> — fair · spread · size. <kbd className="text-violet-light">R</kbd> reloads.</p>
           </div>
           <div className="space-y-3 max-w-md">
             <div>
               <span className="font-mono text-[11px] text-muted">Difficulty</span>
               <div className="mt-1 flex gap-2">
                 {(['easy', 'med', 'hard'] as Diff[]).map((d) => (
-                  <button key={d} type="button" onClick={() => setDiff(d)}
-                    className={`font-mono text-xs px-3 py-1.5 rounded border capitalize ${diff === d ? 'border-violet text-violet-light' : 'border-steel text-muted hover:text-fg'}`}>
-                    {d === 'med' ? 'medium' : d}
-                  </button>
+                  <button key={d} type="button" onClick={() => setDiff(d)} className={`font-mono text-xs px-3 py-1.5 rounded border capitalize ${diff === d ? 'border-violet text-violet-light' : 'border-steel text-muted hover:text-fg'}`}>{d === 'med' ? 'medium' : d}</button>
                 ))}
               </div>
               <p className="mt-1 font-mono text-[10px] text-muted">{Math.round(CFG[diff].phi * 100)}% informed flow · vol up to {CFG[diff].sigmaMax}/s</p>
@@ -565,7 +582,6 @@ export default function AdverseSelection() {
   const livePnl = e.cash + e.pos * e.fair;
   const remain = Math.max(0, e.duration - e.elapsed);
 
-  // ── done ──
   if (phase === 'done') {
     const finalPnl = e.cash + e.pos * e.truePx;
     const avgErr = e.absErrN ? e.absErrSum / e.absErrN : 0;
@@ -573,14 +589,13 @@ export default function AdverseSelection() {
     const risk = e.riskExp;
     let coach: string;
     if (e.adversePnl < -e.spreadPnl)
-      coach = 'Adverse selection beat your spread capture — your fair lagged the walk and takers picked off the stale side. Watch the tape walk and re-centre fair faster, and widen when prints start bursting (that’s vol rising).';
+      coach = 'Adverse selection beat your spread capture — informed flow paid through the stale side of your quote. Re-centre fair faster as the tape walks, and widen when prints start bursting (that’s vol rising).';
     else if (risk > Math.abs(finalPnl) * 4 && e.peakPos > 12)
-      coach = 'Decent edge but you ran a lot of risk — big inventory carried through volatile patches. Lean your fair to bleed the position back to flat, especially once the tape gets jumpy.';
+      coach = 'Decent edge but you ran a lot of risk — big inventory carried through volatile patches. Lean your fair (or cross to flatten) to bleed the position back, especially once the book gets jumpy.';
     else if (finalPnl > 0)
-      coach = 'Net positive with risk in check — you captured spread from the flow, kept fair near true, and didn’t carry size into the storms. That balance is the whole job.';
+      coach = 'Net positive with risk in check — you captured spread, kept fair near true, and didn’t carry size into the storms. That balance is the whole job.';
     else
       coach = 'Close. Every fill on the wrong side of true costs you; every fill near true pays the spread. Keep fair tracking the book, tighten in calm, widen in storms, and reload only when your quote is right.';
-
     return (
       <div className="space-y-4">
         <div className="flex flex-wrap gap-x-6 gap-y-1 font-mono text-xs text-muted"><span>Best P&amp;L: {best ?? '—'}</span></div>
@@ -606,7 +621,6 @@ export default function AdverseSelection() {
     );
   }
 
-  // ── play ──
   const armed = e.armed;
   const ControlRow = ({ c, label, value, hot }: { c: Control; label: string; value: string; hot: string }) => (
     <div className={`rounded border px-3 py-2 ${armed === c ? 'border-violet bg-violet/10' : 'border-steel'}`}>
@@ -634,7 +648,6 @@ export default function AdverseSelection() {
 
       <div className="flex flex-col lg:flex-row gap-3">
         <div className="flex-1 min-w-0 space-y-3">
-          {/* trade ticker — above the graph */}
           <div className="rounded-lg border border-steel bg-panel overflow-hidden">
             <div className="grid grid-cols-[1fr_1fr_1fr] px-3 py-1 border-b border-steel font-mono text-[10px] uppercase tracking-wide text-muted">
               <span>Time</span><span className="text-right">Price</span><span className="text-right">Size</span>
@@ -652,10 +665,9 @@ export default function AdverseSelection() {
           </div>
           <div className="rounded-lg border border-steel bg-panel p-3"><LiveChart e={e} /></div>
         </div>
-        <div className="lg:w-48 shrink-0"><OrderBook e={e} /></div>
+        <div className="lg:w-56 shrink-0"><Ladder e={e} /></div>
       </div>
 
-      {/* quote panel */}
       <div className="grid grid-cols-3 gap-2">
         <div className="rounded border border-closed/40 bg-bg px-3 py-2">
           <p className="font-mono text-[10px] uppercase tracking-wide text-muted">Your bid</p>
@@ -674,14 +686,11 @@ export default function AdverseSelection() {
         </div>
       </div>
 
-      {/* controls */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <ControlRow c="fair" label="Fair" hot="F" value={e.fair.toFixed(1)} />
         <ControlRow c="spread" label="Spread" hot="S" value={(2 * e.hs).toFixed(1)} />
         <ControlRow c="size" label="Quote size" hot="Q" value={`${e.size}`} />
-        <button type="button" onClick={reload} className="rounded border border-violet/60 text-violet-light hover:bg-violet/15 font-mono text-sm px-3 py-2">
-          Reload <span className="text-violet-light">R</span>
-        </button>
+        <button type="button" onClick={reload} className="rounded border border-violet/60 text-violet-light hover:bg-violet/15 font-mono text-sm px-3 py-2">Reload <span className="text-violet-light">R</span></button>
       </div>
 
       <button type="button" className={btn2Cls} onClick={finish}>End run</button>
