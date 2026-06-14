@@ -7,6 +7,7 @@ import Firms from './pages/Firms';
 import Questions from './pages/Questions';
 import Mock from './pages/Mock';
 import Options from './pages/Options';
+import OptionsChapter from './pages/OptionsChapter';
 import Games from './pages/Games';
 import Resources from './pages/Resources';
 
@@ -21,6 +22,7 @@ export default function App() {
         <Route path="questions" element={<Questions />} />
         <Route path="mock" element={<Mock />} />
         <Route path="options" element={<Options />} />
+        <Route path="options/:chapterId" element={<OptionsChapter />} />
         <Route path="games" element={<Games />} />
         <Route path="resources" element={<Resources />} />
         <Route path="*" element={<Home />} />
