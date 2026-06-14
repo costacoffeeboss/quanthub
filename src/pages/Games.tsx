@@ -8,6 +8,7 @@ import AdverseSelection from '../games/AdverseSelection';
 import KellyGame from '../games/KellyGame';
 import HiddenDice from '../games/HiddenDice';
 import CalibrationDuel from '../games/CalibrationDuel';
+import HoldemMarket from '../games/HoldemMarket';
 
 const games = [
   {
@@ -19,6 +20,11 @@ const games = [
     id: 'adverse-selection',
     name: 'Adverse Selection',
     blurb: 'Live-quote spice against informed and noise flow. Read the tape, steer your fair, beat the hidden walk.',
+  },
+  {
+    id: 'holdem',
+    name: "Hold'em Market Maker",
+    blurb: 'Quote the sum of a poker-style deal against 3 bots. Read the cards, make markets, settle to the truth.',
   },
   {
     id: 'hidden-dice',
@@ -67,7 +73,7 @@ export default function Games() {
       <header>
         <h1 className="text-2xl font-bold">Market Making Games</h1>
         <p className="mt-2 text-muted max-w-2xl text-sm">
-          Nine games drilling the exact skills quant interviews test — counting, market making,
+          Ten games drilling the exact skills quant interviews test — counting, market making,
           calibration, EV, sizing, and speed. High scores stay in this browser.
         </p>
       </header>
@@ -96,6 +102,7 @@ export default function Games() {
       <div role="tabpanel">
         {active === 'counting-cards' && <CountingCards />}
         {active === 'adverse-selection' && <AdverseSelection />}
+        {active === 'holdem' && <HoldemMarket />}
         {active === 'hidden-dice' && <HiddenDice />}
         {active === 'kelly' && <KellyGame />}
         {active === 'calibration' && <CalibrationDuel />}
