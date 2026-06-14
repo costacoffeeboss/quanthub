@@ -26,8 +26,9 @@ export default function Options() {
       <header>
         <h1 className="text-2xl font-bold">Options Theory</h1>
         <p className="mt-2 text-muted max-w-2xl text-sm">
-          A seven-chapter course from first principles to the vol surface. Read each chapter, pass its
-          quiz ({PASS_PCT}% to clear), and the next unlocks. Light on formulas on purpose — interviews
+          A seven-chapter course from first principles to the vol surface. Each chapter is split into
+          short sub-chapters, each ending with a quick understanding check; clear the chapter’s final
+          exam ({PASS_PCT}% to pass) and the next unlocks. Light on formulas on purpose — interviews
           reward understanding over recall. Progress is saved in this browser.
         </p>
       </header>

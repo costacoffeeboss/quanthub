@@ -1,5 +1,5 @@
 import { Link, useParams } from 'react-router-dom';
-import { chapters, chapterById, chapterIndex } from '../data/optionsCourse';
+import { chapters, chapterById, chapterIndex, PASS_PCT } from '../data/optionsCourse';
 import { isUnlocked, useOptionsProgress, useUnlockAll } from '../lib/optionsProgress';
 import { lessons } from './options/lessons';
 import Quiz from '../components/options/Quiz';
@@ -39,7 +39,7 @@ export default function OptionsChapter() {
             🔒 <strong className="text-fg">{chapter.title}</strong> is locked.
           </p>
           <p className="mt-2 text-sm text-muted">
-            Pass the quiz at the end of chapter {chapter.number - 1} to unlock it — or enable “Unlock all
+            Pass the final exam at the end of chapter {chapter.number - 1} to unlock it — or enable “Unlock all
             chapters” on the course overview.
           </p>
         </div>
@@ -85,17 +85,18 @@ export default function OptionsChapter() {
       {/* lesson */}
       <article>{lessons[chapter.id]}</article>
 
-      {/* quiz */}
+      {/* final exam */}
       <section className="space-y-4 border-t border-steel pt-8">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-xl font-bold">Chapter {chapter.number} quiz</h2>
+          <h2 className="text-xl font-bold">Chapter {chapter.number} final exam</h2>
           {result?.passed && (
             <span className="font-mono text-xs text-open">passed · best {result.bestPct}%</span>
           )}
         </div>
         <p className="text-sm text-muted max-w-2xl">
-          {chapter.quiz.length} questions on this chapter only. Score 70% or better to mark it complete and
-          unlock the next.
+          {chapter.quiz.length} questions spanning every sub-chapter above. Score {PASS_PCT}% or better to mark
+          the chapter complete and unlock the next. (The shorter checks within each sub-chapter are just for
+          practice — only this exam counts.)
         </p>
         <Quiz questions={chapter.quiz} onComplete={handleComplete} />
       </section>
@@ -121,7 +122,7 @@ export default function OptionsChapter() {
               Next: {next.number}. {next.title} →
             </Link>
           ) : (
-            <span className="font-mono text-xs text-muted">🔒 Pass the quiz to continue</span>
+            <span className="font-mono text-xs text-muted">🔒 Pass the final exam to continue</span>
           ))}
       </nav>
     </div>

@@ -4,8 +4,14 @@ import { PASS_PCT } from '../../data/optionsCourse';
 
 interface Props {
   questions: QuizQuestion[];
+  /**
+   * 'exam'  — the gating final exam: shows the pass mark and pass/fail banner.
+   * 'check' — a formative mid-sub-chapter understanding check: instant feedback,
+   *           no pass mark, no gating.
+   */
+  mode?: 'exam' | 'check';
   /** Called on every submission with the score so progress can be persisted. */
-  onComplete: (pct: number, passed: boolean) => void;
+  onComplete?: (pct: number, passed: boolean) => void;
 }
 
 function isCorrect(q: QuizQuestion, raw: string | undefined): boolean {
@@ -15,9 +21,10 @@ function isCorrect(q: QuizQuestion, raw: string | undefined): boolean {
   return Number.isFinite(n) && Math.abs(n - q.answer) <= q.tolerance;
 }
 
-export default function Quiz({ questions, onComplete }: Props) {
+export default function Quiz({ questions, mode = 'exam', onComplete }: Props) {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [submitted, setSubmitted] = useState(false);
+  const isCheck = mode === 'check';
 
   const { correct, pct, passed } = useMemo(() => {
     const c = questions.filter((q) => isCorrect(q, answers[q.id])).length;
@@ -32,7 +39,7 @@ export default function Quiz({ questions, onComplete }: Props) {
 
   function submit() {
     setSubmitted(true);
-    onComplete(pct, passed);
+    onComplete?.(pct, passed);
   }
 
   function reset() {
@@ -42,7 +49,26 @@ export default function Quiz({ questions, onComplete }: Props) {
 
   return (
     <div className="space-y-5">
-      {submitted && (
+      {submitted && isCheck && (
+        <div
+          className={`rounded-lg border p-3 ${
+            correct === questions.length ? 'border-open/50 bg-open/10' : 'border-soon/50 bg-soon/10'
+          }`}
+        >
+          <p className="font-mono text-sm">
+            <span className={correct === questions.length ? 'text-open' : 'text-soon'}>
+              {correct}/{questions.length} correct
+            </span>{' '}
+            <span className="text-muted">
+              {correct === questions.length
+                ? '— nicely done. On to the next sub-chapter.'
+                : '— read the explanations below, then continue.'}
+            </span>
+          </p>
+        </div>
+      )}
+
+      {submitted && !isCheck && (
         <div
           className={`rounded-lg border p-4 ${
             passed ? 'border-open/50 bg-open/10' : 'border-closed/50 bg-closed/10'
@@ -150,10 +176,12 @@ export default function Quiz({ questions, onComplete }: Props) {
               disabled={!allAnswered}
               className="font-mono text-xs px-4 py-2 rounded border border-violet/60 text-violet-light hover:bg-violet/15 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              Submit quiz
+              {isCheck ? 'Check answers' : 'Submit exam'}
             </button>
             {!allAnswered && (
-              <span className="font-mono text-xs text-muted">Answer every question to submit.</span>
+              <span className="font-mono text-xs text-muted">
+                Answer every question to {isCheck ? 'check' : 'submit'}.
+              </span>
             )}
           </>
         ) : (
@@ -162,7 +190,7 @@ export default function Quiz({ questions, onComplete }: Props) {
             onClick={reset}
             className="font-mono text-xs px-4 py-2 rounded border border-steel text-fg hover:border-violet-light transition-colors"
           >
-            Retake quiz
+            {isCheck ? 'Try again' : 'Retake exam'}
           </button>
         )}
       </div>

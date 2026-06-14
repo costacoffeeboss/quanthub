@@ -1,10 +1,127 @@
-import { H, KeyIdea, Example, InterviewAngle, prose } from '../lessonKit';
+import { H3, KeyIdea, Example, InterviewAngle, SubSection, prose } from '../lessonKit';
+import type { QuizQuestion } from '../../../data/optionsCourse';
+
+const checks_6_1: QuizQuestion[] = [
+  {
+    id: 'chk-hedge-1a',
+    type: 'mcq',
+    prompt:
+      'You are long a call with delta 0.5. To become delta-neutral, what stock position do you take?',
+    choices: ['Buy 0.5 shares', 'Short 0.5 shares', 'Short 1 share', 'Buy 1 share'],
+    answerIndex: 1,
+    explanation:
+      'Delta is the share-equivalent of the option. A delta of 0.5 behaves like holding half a share, so you short 0.5 shares to cancel the directional exposure and become delta-neutral.',
+  },
+  {
+    id: 'chk-hedge-1b',
+    type: 'numeric',
+    prompt:
+      'Long a call with delta 0.5, hedged by shorting 0.5 shares. The stock moves from £100 to £102. What is the approximate first-order profit of the combined position, in £?',
+    answer: 0,
+    tolerance: 0.01,
+    unit: '£',
+    explanation:
+      'The option gains ≈ 0.5 × £2 = +£1.00 while the short shares lose ≈ 0.5 × £2 = −£1.00. To first order they cancel, so the profit is about £0.',
+  },
+];
+
+const checks_6_2: QuizQuestion[] = [
+  {
+    id: 'chk-hedge-2a',
+    type: 'mcq',
+    prompt:
+      'Because you are long gamma, after the stock rises your call’s delta grows from 0.5 to 0.6 while you are still short only 0.5 shares. To return to delta-neutral you should:',
+    choices: [
+      'Buy 0.1 shares at the high price',
+      'Sell 0.1 more shares at the high price',
+      'Do nothing — you are still neutral',
+      'Buy back all your short shares',
+    ],
+    answerIndex: 1,
+    explanation:
+      'A delta of 0.6 against a short of 0.5 leaves you net long 0.1 deltas. You sell 0.1 more shares at the high price of £102 to get back to neutral — selling high.',
+  },
+  {
+    id: 'chk-hedge-2b',
+    type: 'mcq',
+    prompt: 'Gamma scalping profits are powered by which quantity?',
+    choices: [
+      'How much the stock actually moves (realised volatility)',
+      'The dividend yield of the stock',
+      'The risk-free interest rate',
+      'The bid-ask spread on the option',
+    ],
+    answerIndex: 0,
+    explanation:
+      'Positive gamma forces you to buy low and sell high every time the stock oscillates. The more the stock actually moves, the more you scalp — so the profit is powered by realised volatility.',
+  },
+];
+
+const checks_6_3: QuizQuestion[] = [
+  {
+    id: 'chk-hedge-3a',
+    type: 'mcq',
+    prompt:
+      'A delta-hedged long-option position makes money overall precisely when:',
+    choices: [
+      'Implied volatility exceeds realised volatility',
+      'Realised volatility exceeds the implied volatility you paid',
+      'Theta is positive',
+      'The stock never moves at all',
+    ],
+    answerIndex: 1,
+    explanation:
+      'You bought movement at the implied price and get paid back at the realised rate. Scalping profits grow with realised vol while theta cost is fixed by the implied vol you paid, so you win when realised beats implied.',
+  },
+  {
+    id: 'chk-hedge-3b',
+    type: 'mcq',
+    prompt:
+      'A trader who sells options and delta-hedges (short gamma) must re-hedge by:',
+    choices: [
+      'Buying shares high and selling shares low',
+      'Buying shares low and selling shares high',
+      'Never re-hedging at all',
+      'Only trading the option, never the stock',
+    ],
+    answerIndex: 0,
+    explanation:
+      'Short gamma flips the scalping mechanism: as the stock rises delta gets more negative so you must buy high, and as it falls you sell low. You collect theta as steady income but a big move bleeds you — pennies in front of a steamroller.',
+  },
+];
+
+const checks_6_4: QuizQuestion[] = [
+  {
+    id: 'chk-hedge-4a',
+    type: 'mcq',
+    prompt:
+      'Black-Scholes assumes continuous re-hedging, but in practice you rebalance at intervals. The residual risk this leaves is called:',
+    choices: ['Theta decay', 'Hedging error', 'Vega exposure', 'Risk-neutral drift'],
+    answerIndex: 1,
+    explanation:
+      'Between discrete rebalances the stock can move a lot, and a gap can blow through a stale hedge. That gap between clean theory and messy practice is the hedging error; more frequent hedging shrinks it at the cost of more transactions.',
+  },
+  {
+    id: 'chk-hedge-4b',
+    type: 'mcq',
+    prompt:
+      'Why does the ability to delta-hedge justify the Black-Scholes price?',
+    choices: [
+      'Because hedging guarantees a profit on every trade',
+      'Because the hedge manufactures the payoff, so the fair price must equal the cost of running the strategy or arbitrage appears',
+      'Because hedging removes the need to know delta',
+      'Because it makes the stock price irrelevant',
+    ],
+    answerIndex: 1,
+    explanation:
+      'Since a delta-hedging strategy can replicate the option’s payoff, the option’s fair price must equal the cost of running that strategy — otherwise arbitrage appears. The hedge removes risk, so risk preferences cannot enter the price.',
+  },
+];
 
 export default function Hedging() {
   return (
     <div className="space-y-12">
-      <section className="space-y-3 max-w-3xl">
-        <H>From a formula to a living strategy</H>
+      <SubSection n="6.1" title="Cancelling out direction" check={checks_6_1}>
         <p className={prose}>
           Chapter 4 said an option’s price is the cost of a recipe that <em>copies</em> its payoff out of shares
           and cash. This chapter is about cooking that recipe in real time. The technique is called{' '}
@@ -16,10 +133,6 @@ export default function Hedging() {
           loses money, and why that depends on the tug-of-war between realised and implied volatility you met
           in Chapter 5.
         </p>
-      </section>
-
-      <section className="space-y-4 max-w-3xl">
-        <H>Cancelling out direction</H>
         <p className={prose}>
           Recall delta is the share-equivalent of an option. If you own a call with delta 0.5, you behave like
           someone holding half a share — you make money when the stock rises, lose when it falls. To remove
@@ -32,10 +145,9 @@ export default function Hedging() {
           <p>Option gains ≈ 0.5 × £2 = +£1.00. Short shares lose ≈ 0.5 × £2 = −£1.00.</p>
           <p>First-order profit ≈ <strong>£0</strong>. So far, so pointless — the hedge cancelled everything. The magic is in what happens <em>next</em>.</p>
         </Example>
-      </section>
+      </SubSection>
 
-      <section className="space-y-4 max-w-3xl">
-        <H>Gamma scalping: where the profit hides</H>
+      <SubSection n="6.2" title="Gamma scalping: where the profit hides" check={checks_6_2}>
         <p className={prose}>
           Here is the subtlety. After the stock rose to £102, your call’s delta is no longer 0.5 — because you
           are long gamma, the delta has grown, say to 0.6. But you are still only short 0.5 shares, so you are
@@ -53,10 +165,10 @@ export default function Hedging() {
           stock oscillates. The more the stock actually moves, the more you scalp. Your profit is powered by{' '}
           <strong>realised volatility</strong>.
         </KeyIdea>
-      </section>
+      </SubSection>
 
-      <section className="space-y-4 max-w-3xl">
-        <H>The catch: you’re paying rent</H>
+      <SubSection n="6.3" title="The volatility trade-off: theta vs realised vol" check={checks_6_3}>
+        <H3>The catch: you’re paying rent</H3>
         <p className={prose}>
           If gamma scalping were free money, everyone would do it forever. It is not — because every day you
           hold that long option, you pay <strong>theta</strong> (time decay). The option you bought is quietly
@@ -71,10 +183,7 @@ export default function Hedging() {
           exceeds the implied volatility you paid</strong>. You bought movement at the “implied” price; you get
           paid back at the “realised” rate. Beat the spread and you win.
         </KeyIdea>
-      </section>
-
-      <section className="space-y-4 max-w-3xl">
-        <H>The mirror image: being short gamma</H>
+        <H3>The mirror image: being short gamma</H3>
         <p className={prose}>
           Sell options and delta-hedge, and everything flips. You <em>collect</em> theta every day — pleasant in
           a quiet market. But you are now <strong>short gamma</strong>, which means re-hedging forces you to do
@@ -83,10 +192,10 @@ export default function Hedging() {
           badly. Short-gamma traders earn small, steady income and live in fear of the day the market gaps —
           “picking up pennies in front of a steamroller.”
         </p>
-      </section>
+      </SubSection>
 
-      <section className="space-y-4 max-w-3xl">
-        <H>Why the textbook hedge is never perfect</H>
+      <SubSection n="6.4" title="From messy practice to the clean formula" check={checks_6_4}>
+        <H3>Why the textbook hedge is never perfect</H3>
         <p className={prose}>
           Black-Scholes assumes you re-hedge <em>continuously</em>. In reality you rebalance at intervals — once
           a day, or when delta drifts past a threshold. Between rebalances the stock can move a lot, and a big
@@ -95,10 +204,7 @@ export default function Hedging() {
           The smoother and more frequent your hedging, the closer you get to the Black-Scholes ideal — at the
           cost of more transactions.
         </p>
-      </section>
-
-      <section className="space-y-4 max-w-3xl">
-        <H>Closing the loop: why replication justifies the price</H>
+        <H3>Closing the loop: why replication justifies the price</H3>
         <p className={prose}>
           Step back and admire the whole structure. Because a delta-hedging strategy can <em>manufacture</em> the
           option’s payoff, the option’s fair price must equal the cost of running that strategy — no more, no
@@ -106,9 +212,6 @@ export default function Hedging() {
           “risk-neutral pricing” more than a trick: the hedge removes risk, so risk preferences cannot enter the
           price. Hedging is the bridge between the messy real world and the clean formula.
         </p>
-      </section>
-
-      <section className="max-w-3xl">
         <InterviewAngle>
           A favourite question: “You buy an option and delta-hedge it — when do you make money?” The crisp
           answer is “when realised vol beats the implied vol I paid,” followed by the gamma-scalping mechanism
@@ -116,7 +219,7 @@ export default function Hedging() {
           and to mention that discrete hedging leaves residual risk. This question separates people who
           memorised the Greeks from people who understand them.
         </InterviewAngle>
-      </section>
+      </SubSection>
     </div>
   );
 }
