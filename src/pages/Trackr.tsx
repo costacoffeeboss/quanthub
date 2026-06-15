@@ -72,9 +72,9 @@ export default function Trackr() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-bold">Trackr</h1>
+        <h1 className="text-2xl font-bold">Tracker</h1>
         <p className="mt-2 text-muted max-w-2xl text-sm">
-          UK-relevant quant programmes and the wider offices these firms recruit graduates into.
+          Quant internships and graduate programmes, and the wider offices these firms recruit into.
           Windows are <em>typical</em> of recent cycles. Star the roles you care about, jot a note,
           and set your status — everything stays in this browser.
         </p>

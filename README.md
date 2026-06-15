@@ -1,8 +1,9 @@
-# QuantHub
+# Quant Interview
 
-A free hub for UK students and graduates breaking into quant finance: role explainers,
-an application tracker, factual firm profiles, ~240 worked interview brainteasers, a timed
-mock interview with LLM grading, interactive options theory, and nine market-making games.
+A free, independent hub for breaking into quant finance, built by people who've been through
+the process: role explainers, an application tracker, factual firm profiles, ~240 worked
+interview brainteasers, a timed mock interview with LLM grading, interactive options theory,
+and market-making games.
 
 ## Stack
 
@@ -25,10 +26,10 @@ node scripts/verify-questions.mjs   # independently recompute every numeric answ
 
 ## Structure
 
-- `src/data/` — typed static data: `firms.ts` (Trackr programmes), `firms-detail.ts` (firm
+- `src/data/` — typed static data: `firms.ts` (Tracker programmes), `firms-detail.ts` (firm
   profiles), `roles.ts`, and `questionBank/` (8 category files + index with the daily-question
   helper, ~240 questions).
-- `src/pages/` — one component per top-nav tab (Home, Roles, Trackr, Firms, Questions, Mock,
+- `src/pages/` — one component per top-nav tab (Home, Roles, Tracker, Firms, Questions, Mock,
   Options, Games, Resources).
 - `src/games/` — nine games: Counting Cards, Adverse Selection, Hidden Dice, Kelly Criterion,
   Calibration Duel, Sequence Sprint, Market Maker, Mental Math Sprint, Dice EV.
@@ -58,8 +59,8 @@ backendless:
 
 ## Honesty notes
 
-Opening windows in the Trackr are *typical of recent cycles*, not live status, and the UI says
-so. Compensation figures (Trackr, Roles, and Firm Profiles) are labelled approximate and, for
+Opening windows in the Tracker are *typical of recent cycles*, not live status, and the UI says
+so. Compensation figures (Tracker, Roles, and Firm Profiles) are labelled approximate and, for
 firms, drawn from cross-referenced public/forum data — orders of magnitude, not offers. Firm
 interview-process and culture notes are aggregated public reports, not official. There are no
 testimonials and no invented statistics.

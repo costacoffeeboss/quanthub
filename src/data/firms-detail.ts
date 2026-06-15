@@ -828,7 +828,7 @@ export const FIRM_CATEGORIES: FirmCategory[] = [
 ];
 
 /**
- * Map a Trackr programme's firm display-name to a profile id.
+ * Map a Tracker programme's firm display-name to a profile id.
  * Ordered so more-specific names (Citadel Securities) match before broader ones.
  */
 const NAME_TO_ID: Array<[RegExp, string]> = [

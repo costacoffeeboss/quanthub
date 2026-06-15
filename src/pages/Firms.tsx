@@ -183,7 +183,7 @@ export default function Firms() {
   const [cat, setCat] = useState<FirmCategory | 'All'>('All');
   const { hash } = useLocation();
 
-  // deep-link: scroll to #firmId when arriving from Trackr
+  // deep-link: scroll to #firmId when arriving from the Tracker
   useEffect(() => {
     if (hash) {
       const el = document.getElementById(hash.slice(1));
@@ -201,7 +201,7 @@ export default function Firms() {
       <header>
         <h1 className="text-2xl font-bold">Firm Profiles</h1>
         <p className="mt-2 text-muted max-w-3xl text-sm">
-          Dense, cross-referenced profiles of the firms in the Trackr — what they do, how they hire,
+          Dense, cross-referenced profiles of the firms in the Tracker — what they do, how they hire,
           and what they&apos;re known for, compiled to help you target and prepare.
         </p>
         <div className="mt-3 rounded border border-soon/40 bg-soon/10 px-4 py-3 text-[12px] text-soon leading-relaxed">

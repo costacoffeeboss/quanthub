@@ -28,7 +28,7 @@ export const APPLICATION_STAGES = [
 export type ApplicationStage = (typeof APPLICATION_STAGES)[number];
 
 /**
- * UK-relevant quant programmes plus the wider offices these same firms recruit
+ * Quant programmes plus the wider offices these same firms recruit
  * graduates into. Locations, windows, apply-by guidance and comp are all
  * APPROXIMATE and change every cycle — this is a planning aid, not live data.
  * Comp is self-reported (forums), expressed as a hedged range / monthly figure.

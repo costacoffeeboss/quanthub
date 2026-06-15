@@ -3,7 +3,7 @@ import { NavLink, Outlet } from 'react-router-dom';
 const tabs = [
   { to: '/', label: 'Home' },
   { to: '/roles', label: 'Roles' },
-  { to: '/trackr', label: 'Trackr' },
+  { to: '/trackr', label: 'Tracker' },
   { to: '/firms', label: 'Firms' },
   { to: '/questions', label: 'Questions' },
   { to: '/mock', label: 'Mock' },
@@ -18,7 +18,7 @@ export default function Layout() {
       <header className="border-b border-steel bg-panel/80 backdrop-blur sticky top-0 z-20">
         <div className="mx-auto max-w-6xl px-4 flex items-center gap-4 h-14">
           <NavLink to="/" className="wordmark font-mono font-bold text-lg tracking-tight shrink-0">
-            QUANT//HUB
+            QUANT//INTERVIEW
           </NavLink>
           <nav aria-label="Main" className="overflow-x-auto -mb-px">
             <ul className="flex items-center gap-1 font-mono text-xs uppercase tracking-wider">
@@ -50,7 +50,7 @@ export default function Layout() {
 
       <footer className="border-t border-steel mt-12">
         <div className="mx-auto max-w-6xl px-4 py-6 text-xs text-muted space-y-2">
-          <p className="font-mono uppercase tracking-wider text-fg/70">QuantHub</p>
+          <p className="font-mono uppercase tracking-wider text-fg/70">Quant Interview</p>
           <p>
             Free and independent. Not affiliated with any firm listed. Opening windows and
             compensation figures are approximate and change every year — always verify on the
