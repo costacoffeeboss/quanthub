@@ -6,6 +6,8 @@ import {
   type FirmCategory,
   type FirmProfile,
 } from '../data/firms-detail';
+import { firmTypeGuides } from '../data/firmTypes';
+import FirmQuiz from '../components/FirmQuiz';
 
 const catColor: Record<FirmCategory, string> = {
   'Prop / Market Maker': 'text-open',
@@ -33,6 +35,74 @@ function bullets(items: string[]) {
         </li>
       ))}
     </ul>
+  );
+}
+
+function MiniList({ label, items }: { label: string; items: string[] }) {
+  return (
+    <div>
+      <p className="font-mono text-[10px] uppercase tracking-wider text-muted mb-1">{label}</p>
+      <ul className="space-y-1 text-[13px] leading-snug">
+        {items.map((s, i) => (
+          <li key={i} className="flex gap-1.5">
+            <span className="text-violet shrink-0">▸</span>
+            {s}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function TypeGuides() {
+  return (
+    <section aria-labelledby="firm-types-heading" className="space-y-3">
+      <h2 id="firm-types-heading" className="text-lg font-bold">
+        The four firm types
+      </h2>
+      <p className="text-sm text-muted max-w-3xl">
+        Quant employers fall into a few broad families. They differ in what they do, how they hire,
+        culture and pace. Read these first, then take the quiz below if you&apos;re unsure where you
+        fit. Culture, comp and lifestyle notes are aggregated, subjective and approximate.
+      </p>
+      <div className="grid gap-4 lg:grid-cols-2">
+        {firmTypeGuides.map((g) => (
+          <article key={g.category} className="rounded-lg border border-steel bg-panel p-5 space-y-4">
+            <header className="space-y-1">
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                <h3 className={`text-base font-bold ${catColor[g.category]}`}>{g.category}</h3>
+                <span className="font-mono text-[11px] text-muted">— {g.nick}</span>
+              </div>
+              <p className="text-[13px] leading-snug text-fg">{g.blurb}</p>
+            </header>
+
+            <p className="rounded border border-violet/30 bg-violet/5 px-3 py-2 text-[13px]">
+              <span className="font-mono text-[10px] uppercase tracking-wider text-violet-light">Suits you if </span>
+              {g.suitsYouIf}
+            </p>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <MiniList label="Culture" items={g.culture} />
+              <MiniList label="Skills to build" items={g.skills} />
+              <MiniList label="Interview focus" items={g.interviewFocus} />
+              <div className="space-y-3">
+                <div>
+                  <p className="font-mono text-[10px] uppercase tracking-wider text-muted mb-1">Comp (approx)</p>
+                  <p className="text-[13px] leading-snug">
+                    <span className="text-soon font-mono text-[10px] uppercase tracking-wider">approx · </span>
+                    {g.comp}
+                  </p>
+                </div>
+                <div>
+                  <p className="font-mono text-[10px] uppercase tracking-wider text-muted mb-1">Lifestyle</p>
+                  <p className="text-[13px] leading-snug">{g.lifestyle}</p>
+                </div>
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -143,6 +213,14 @@ export default function Firms() {
           anything here.
         </div>
       </header>
+
+      <TypeGuides />
+
+      <FirmQuiz />
+
+      <div className="border-t border-steel pt-2">
+        <h2 className="text-lg font-bold">All firm profiles</h2>
+      </div>
 
       <div className="flex flex-wrap items-center gap-2">
         <select aria-label="Firm category" className={selectCls} value={cat} onChange={(e) => setCat(e.target.value as FirmCategory | 'All')}>
