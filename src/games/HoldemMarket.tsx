@@ -163,6 +163,26 @@ function botAct(e: Engine, bot: number) {
   }
 }
 
+// during a bot's quote window, another bot may take a side of the shown market
+// once the player's 3-second head start is up (biased toward the good side).
+function windowSteal(e: Engine, activeSeat: number) {
+  const q = e.quotes[activeSeat];
+  if (!q.live) return;
+  const takers = [1, 2, 3].filter((s) => s !== activeSeat);
+  const taker = takers[Math.floor(Math.random() * takers.length)];
+  const cfg = e.cfg[taker - 1];
+  const est = e.est[taker];
+  const buyEdge = q.askSz > 0 ? est - q.ask : -Infinity; // taker lifts the offer
+  const sellEdge = q.bidSz > 0 ? q.bid - est : -Infinity; // taker hits the bid
+  if (buyEdge > cfg.edge && buyEdge >= sellEdge) {
+    const sz = clampBotSize(e, taker, activeSeat, q.askSz);
+    if (sz > 0) { doTrade(e, taker, activeSeat, q.ask, sz); q.askSz = 0; }
+  } else if (sellEdge > cfg.edge) {
+    const sz = clampBotSize(e, activeSeat, taker, q.bidSz);
+    if (sz > 0) { doTrade(e, activeSeat, taker, q.bid, sz); q.bidSz = 0; }
+  }
+}
+
 function startRound(e: Engine) {
   e.order = [0, 1, 2, 3].map((i) => (e.dealer + i) % 4);
   e.turnIdx = 0;
@@ -199,72 +219,99 @@ function freshEngine(diff: Diff): Engine {
   return e;
 }
 
+/**
+ * Information-adjusted fair: infer each *seen* bot's hole-card sum from the
+ * midpoint of its market, then value the deal as your cards + the inferred bot
+ * cards + the expected value of everything still genuinely unknown. NEVER shown
+ * to the player — only used to coach in the reflection pause.
+ */
+function infoFair(e: Engine): number {
+  const revealed = REVEALED[e.roundIdx];
+  const commSum = e.community.slice(0, revealed).reduce((a, c) => a + cardVal(c), 0);
+  const yourKnown = seatKnown(e, 0);
+  const yourSum = yourKnown.reduce((a, c) => a + cardVal(c), 0);
+  const yourCount = yourKnown.length; // 2 + revealed
+  const k = 2 + revealed; // a bot's known count this street
+  const a = (13 - k) / (52 - k);
+  const seen = [1, 2, 3].filter((s) => e.shown[s] && e.quotes[s].live);
+  let inferred = 0;
+  for (const s of seen) {
+    const mid = (e.quotes[s].bid + e.quotes[s].ask) / 2;
+    const ks = (mid - a * FULL_SUM) / (1 - a); // bot's implied total known sum
+    inferred += clamp(ks - commSum, -26, 26); // → its two hole cards
+  }
+  const seenCount = seen.length;
+  const evCards = 2 * (3 - seenCount) + (5 - revealed); // unseen bot holes + unrevealed community
+  const denom = 52 - yourCount - 2 * seenCount;
+  const ev = denom > 0 ? (FULL_SUM - yourSum - inferred) / denom : 0;
+  return yourSum + inferred + evCards * ev;
+}
+
 // reflection: judging the market you just posted
 function buildHoldemPostReflection(e: Engine): ReflectSpec {
   const known = seatKnown(e, 0);
-  const userFair = fairValue(known);
+  const naive = fairValue(known); // your cards + flat average for the rest (shown in the hint)
+  const info = infoFair(e); // info-adjusted — NEVER surfaced as a number
+  const divergence = info - naive;
   const pos = e.pos[0];
   const mid = (e.uBid + e.uAsk) / 2;
   const width = e.uAsk - e.uBid;
   const unc = uncertainty(known.length);
   const targetHalf = clamp(Math.round(0.22 * unc), 2, 14);
   const targetWidth = 2 * targetHalf;
-  const bestBotBid = Math.max(e.quotes[1].bid, e.quotes[2].bid, e.quotes[3].bid);
-  const bestBotAsk = Math.min(e.quotes[1].ask, e.quotes[2].ask, e.quotes[3].ask);
+  const seen = [1, 2, 3].filter((s) => e.shown[s] && e.quotes[s].live);
+  const bestBotBid = seen.length ? Math.max(...seen.map((s) => e.quotes[s].bid)) : null;
+  const bestBotAsk = seen.length ? Math.min(...seen.map((s) => e.quotes[s].ask)) : null;
 
-  const centreErr = mid - userFair;
-  const centered = Math.abs(centreErr) <= Math.max(1.5, width * 0.3);
-  const leanCorrect = pos > 0 ? centreErr < 0.4 : pos < 0 ? centreErr > -0.4 : true;
-  const wrongLean = (pos >= 3 && centreErr > 1) || (pos <= -3 && centreErr < -1);
+  const errNaive = mid - naive;
+  const errInfo = mid - info;
+  const tol = Math.max(1.5, width * 0.3);
+  const centeredInfo = Math.abs(errInfo) <= tol;
+  const centeredNaive = Math.abs(errNaive) <= tol;
+  const hasInfo = seen.length > 0 && Math.abs(divergence) > 1.2;
+  const leanCorrect = pos > 0 ? errInfo < 0.4 : pos < 0 ? errInfo > -0.4 : true;
+  const wrongLean = (pos >= 3 && errInfo > 1) || (pos <= -3 && errInfo < -1);
   const tooTight = width < targetWidth * 0.6;
   const tooWide = width > targetWidth * 2.2;
-  const crossableBuy = bestBotAsk < userFair - 1;
-  const crossableSell = bestBotBid > userFair + 1;
-  const competitive = e.uBid >= bestBotBid - 1 || e.uAsk <= bestBotAsk + 1;
 
   const chips = [
-    { id: 'fair', label: "It's centred on my fair value", sound: centered },
-    { id: 'lean', label: 'I leaned it to work off my position', sound: pos !== 0 && leanCorrect && Math.abs(centreErr) > 0.4 },
+    { id: 'naive', label: 'I centred it on my fair — my cards plus the average for the rest', sound: !hasInfo && centeredNaive },
+    { id: 'bots', label: 'I shaded my market toward where the bots were quoting', sound: hasInfo && centeredInfo },
+    { id: 'lean', label: 'I leaned it to work off my position', sound: pos !== 0 && leanCorrect && Math.abs(errInfo) > 0.4 },
     { id: 'wide', label: "I kept it wide — lots is still hidden", sound: e.roundIdx <= 1 && !tooTight },
-    { id: 'tight', label: 'I tightened to compete for flow', sound: e.roundIdx >= 2 && !tooWide && competitive },
-    { id: 'bots', label: "I priced it against the bots' markets", sound: competitive && !(crossableBuy || crossableSell) },
+    { id: 'tight', label: 'I tightened to compete for flow', sound: e.roundIdx >= 2 && !tooWide },
   ];
 
   let tier: ReflectSpec['verdict']['tier'];
   let headline: string;
-  if (!centered) { tier = 'mistake'; headline = "your market isn't centred on your fair"; }
-  else if (wrongLean) { tier = 'mistake'; headline = 'you leaned the wrong way for your inventory'; }
+  if (wrongLean) { tier = 'mistake'; headline = 'you leaned the wrong way for your inventory'; }
+  else if (hasInfo && !centeredInfo && centeredNaive) { tier = 'mistake'; headline = "you centred on your naive fair and ignored the bots' markets"; }
+  else if (!centeredInfo) { tier = 'mixed'; headline = 'your market is a little off-centre'; }
   else if (tooTight) { tier = 'mixed'; headline = 'tight for how much is still hidden'; }
   else if (tooWide) { tier = 'mixed'; headline = 'wider than you need here'; }
-  else { tier = 'sound'; headline = 'a clean, well-placed market'; }
+  else { tier = 'sound'; headline = 'a well-judged market'; }
 
   const points: string[] = [];
-  points.push(
-    `Your mid ${mid.toFixed(0)} vs your fair ${userFair.toFixed(0)} (${centreErr >= 0 ? '+' : ''}${centreErr.toFixed(0)}). ${centered ? 'Nicely centred.' : 'Quote around your fair, not away from it.'}`,
-  );
-  if (pos !== 0)
-    points.push(
-      `You're ${pos > 0 ? 'long' : 'short'} ${Math.abs(pos)} — ${pos > 0 ? 'lean your market down to encourage selling' : 'lean it up to buy back'}. ${leanCorrect ? 'You did.' : 'You leaned the other way, which adds to your risk.'}`,
-    );
-  else points.push('Flat inventory, so no lean is needed — just quote the value.');
-  points.push(
-    `Width ${width.toFixed(0)} vs a sensible ~${targetWidth} for this much hidden. ${tooTight ? 'A touch tight — you can get picked off.' : tooWide ? 'Wider than necessary — you win less flow.' : 'Reasonable.'}`,
-  );
-  if (crossableSell) points.push(`A bot is bidding ${bestBotBid} — above your fair. You could be selling into that.`);
-  else if (crossableBuy) points.push(`A bot is offering ${bestBotAsk} — below your fair. You could be lifting that.`);
-  else points.push(`Bots' inside market is ${bestBotBid} / ${bestBotAsk} — ${competitive ? "you're competitive with it." : "you're well off it, so you'll trade little."}`);
+  points.push(`Your mid is ${mid.toFixed(0)} and your naive fair is ${naive.toFixed(0)}.`);
+  if (seen.length === 0) {
+    points.push("You hadn't seen any bot markets yet, so the naive fair is the best you've got — quote around it.");
+  } else {
+    points.push("Your naive fair only uses your own cards plus a flat average for everything unseen. But each bot has seen its own cards — so where they make their markets is information about the cards that are out.");
+    if (divergence > 1.2) points.push('The bots were quoting above your naive fair, which hints the unseen cards skew high — your mid may be a touch low. Consider why their mids sit where they do, and shade toward them.');
+    else if (divergence < -1.2) points.push('The bots were quoting below your naive fair, which hints the unseen cards skew low — your mid may be a touch high. Consider why their mids sit where they do, and shade toward them.');
+    else points.push("The bots' mids roughly agreed with your naive fair, so centring there was reasonable this time.");
+  }
+  if (pos !== 0) points.push(`You're ${pos > 0 ? 'long' : 'short'} ${Math.abs(pos)} — ${pos > 0 ? 'lean your market down to encourage selling' : 'lean it up to buy back'}. ${leanCorrect ? 'You did.' : 'You leaned the other way, which adds risk.'}`);
+  points.push(`Width ${width.toFixed(0)} vs a sensible ~${targetWidth} for this much hidden. ${tooTight ? 'A touch tight — you can get picked off.' : tooWide ? 'Wider than necessary — you win less flow.' : 'Reasonable.'}`);
 
-  return {
-    question: 'Why did you show that market?',
-    facts: [
-      { label: 'Fair', value: `~${userFair.toFixed(0)}` },
-      { label: 'Position', value: `${pos > 0 ? '+' : ''}${pos}` },
-      { label: 'You', value: `${e.uBid} / ${e.uAsk}` },
-      { label: 'Bots', value: `${bestBotBid} / ${bestBotAsk}` },
-    ],
-    chips,
-    verdict: { tier, headline, points },
-  };
+  const facts: { label: string; value: string }[] = [
+    { label: 'Naive fair', value: `~${naive.toFixed(0)}` },
+    { label: 'Position', value: `${pos > 0 ? '+' : ''}${pos}` },
+    { label: 'You', value: `${e.uBid} / ${e.uAsk}` },
+  ];
+  if (bestBotBid !== null && bestBotAsk !== null) facts.push({ label: 'Bots (seen)', value: `${bestBotBid} / ${bestBotAsk}` });
+
+  return { question: 'Why did you show that market?', facts, chips, verdict: { tier, headline, points } };
 }
 
 export interface HoldemSummary {
@@ -298,6 +345,10 @@ export default function HoldemMarket({
       const e = g.current; if (!e) return;
       if (e.sub === 'window') {
         e.windowLeft -= 100;
+        // 3s head start, then another bot may pick off a side
+        if (WINDOW_MS - e.windowLeft >= 3000 && !e.tradedWindow && Math.random() < 0.06) {
+          windowSteal(e, e.order[e.turnIdx]);
+        }
         if (e.windowLeft <= 0) { advanceTurn(e); setRunning(false); }
         force();
       } else if (e.sub === 'outcry') {
@@ -315,7 +366,16 @@ export default function HoldemMarket({
 
   function startGame() { g.current = freshEngine(diff); setPhase('play'); }
 
-  function seeMarket() { const e = g.current; if (!e) return; e.shown[e.order[e.turnIdx]] = true; e.sub = 'window'; e.windowLeft = WINDOW_MS; e.tradedWindow = false; setRunning(true); force(); }
+  function seeMarket() {
+    const e = g.current; if (!e) return;
+    const seat = e.order[e.turnIdx];
+    e.shown[seat] = true;
+    // both sides are tradeable when the window opens
+    const cfg = e.cfg[seat - 1];
+    e.quotes[seat].bidSz = Math.max(e.quotes[seat].bidSz, cfg.size);
+    e.quotes[seat].askSz = Math.max(e.quotes[seat].askSz, cfg.size);
+    e.sub = 'window'; e.windowLeft = WINDOW_MS; e.tradedWindow = false; setRunning(true); force();
+  }
   function windowHit() { // sell into the active bot's bid
     const e = g.current; if (!e || e.tradedWindow) return;
     const seat = e.order[e.turnIdx], q = e.quotes[seat];
@@ -356,6 +416,14 @@ export default function HoldemMarket({
   }
   function continueResolved() { const e = g.current; if (!e) return; advanceTurn(e); force(); }
   function openOutcry() { const e = g.current; if (!e) return; e.sub = 'outcry'; e.outcryLeft = OUTCRY_MS; setRunning(true); force(); }
+
+  // post (or update) your own resting market during open outcry — bots can trade it
+  function postOutcryMarket() {
+    const e = g.current; if (!e || e.uAsk <= e.uBid) return;
+    e.quotes[0] = { bid: e.uBid, ask: e.uAsk, bidSz: e.uSize, askSz: e.uSize, live: true };
+    e.shown[0] = true;
+    force();
+  }
 
   function outcryHit() {
     const e = g.current; if (!e) return;
@@ -398,8 +466,9 @@ export default function HoldemMarket({
             <p>Four seats (you + three bots) each get two private cards; five community cards reveal poker-style. You all trade a market on the <strong>sum of every card in play</strong>.</p>
             <ul className="space-y-1">
               <li><span className="text-violet">▸</span> A = 1, pips at face value, J/Q/K = 11/12/13 — but <strong className="text-closed">red pictures (♥♦) score negative</strong>. Everything else positive.</li>
-              <li><span className="text-violet">▸</span> Each street goes once around the table: reveal each bot's market and get 5s to trade it, then post your own market for the bots to trade, then open outcry.</li>
+              <li><span className="text-violet">▸</span> Each street goes once around the table: reveal each bot's market and get 5s to trade it (both sides are yours for the first 3s, then other firms may take one), then post your own market, then open outcry.</li>
               <li><span className="text-violet">▸</span> Bots see only their own two cards. At the river it all settles to the true sum.</li>
+              <li><span className="text-violet">▸</span> The fair-value hint is <em>naïve</em> — your cards plus a flat average for the rest. Good players read the <strong>bots' markets</strong>: where they quote hints at the cards they're holding, so your fair shouldn't just be your own mid.</li>
             </ul>
           </div>
           <div className="space-y-3 max-w-md">
@@ -414,7 +483,7 @@ export default function HoldemMarket({
             </div>
             <label className="flex items-center gap-2 font-mono text-[11px] text-muted">
               <input type="checkbox" checked={hint} onChange={(ev) => setHint(ev.target.checked)} className="accent-[#6d4aff]" />
-              Show fair-value hint (your conditional EV)
+              Show naive fair-value hint (your cards + a flat average for the rest)
             </label>
             <ReflectToggle on={reflect} onChange={setReflect} />
           </div>
@@ -499,7 +568,7 @@ export default function HoldemMarket({
         <span className="text-violet-light">{ROUND_NAMES[e.roundIdx]}</span>
         <span>Position <span className={e.pos[0] === 0 ? 'text-open' : 'text-soon'}>{e.pos[0] > 0 ? '+' : ''}{e.pos[0]}</span></span>
         <span>P&amp;L <span className={livePnl >= 0 ? 'text-open' : 'text-closed'}>{livePnl >= 0 ? '+' : ''}{livePnl.toFixed(0)}</span></span>
-        {hint && <span>Fair <span className="text-violet-light">{userFair.toFixed(1)}</span></span>}
+        {hint && <span>Naive fair <span className="text-violet-light">{userFair.toFixed(1)}</span></span>}
         <button type="button" onClick={() => setHint((h) => !h)} className="font-mono text-[11px] px-2 py-0.5 rounded border border-steel text-muted hover:text-fg">{hint ? 'hide hint' : 'show hint'}</button>
         <span className="ml-auto">Best {best ?? '—'}</span>
       </div>
@@ -541,8 +610,8 @@ export default function HoldemMarket({
                 <span className="font-mono text-[11px] text-muted">trade {e.uSize}</span>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <button type="button" disabled={e.tradedWindow || q.bidSz < 1} onClick={windowHit} className={`${ghostBtn} border-open/50 text-open hover:bg-open/10`}>Hit {q.bid} (sell)</button>
-                <button type="button" disabled={e.tradedWindow || q.askSz < 1} onClick={windowLift} className={`${ghostBtn} border-closed/50 text-closed hover:bg-closed/10`}>Lift {q.ask} (buy)</button>
+                <button type="button" disabled={e.tradedWindow || q.bidSz < 1} onClick={windowHit} className={`${ghostBtn} border-open/50 text-open hover:bg-open/10`}>{q.bidSz < 1 ? 'Bid taken' : `Hit ${q.bid} (sell)`}</button>
+                <button type="button" disabled={e.tradedWindow || q.askSz < 1} onClick={windowLift} className={`${ghostBtn} border-closed/50 text-closed hover:bg-closed/10`}>{q.askSz < 1 ? 'Offer taken' : `Lift ${q.ask} (buy)`}</button>
                 <button type="button" onClick={doneWindow} className={ghostBtn}>Done →</button>
                 <div className="ml-auto flex items-center gap-2 w-40">
                   <div className="flex-1 h-1.5 rounded-full bg-steel overflow-hidden"><div className="h-full bg-violet" style={{ width: `${(e.windowLeft / WINDOW_MS) * 100}%` }} /></div>
@@ -550,17 +619,20 @@ export default function HoldemMarket({
                 </div>
               </div>
               {e.tradedWindow && <p className="font-mono text-[11px] text-violet-light">Traded — click Done to continue.</p>}
+              {!e.tradedWindow && (q.bidSz < 1 || q.askSz < 1) && (
+                <p className="font-mono text-[11px] text-soon">Another firm took the {q.bidSz < 1 ? 'bid' : 'offer'} — you were slow on that side.</p>
+              )}
             </div>
           );
         })()}
 
         {e.sub === 'post' && (
           <div className="space-y-2">
-            <p className="font-mono text-sm">Your turn — <span className="text-violet-light">make your market</span>{hint && <span className="text-muted"> (fair ≈ {userFair.toFixed(0)})</span>}.</p>
+            <p className="font-mono text-sm">Your turn — <span className="text-violet-light">make your market</span>{hint && <span className="text-muted"> (naive fair ≈ {userFair.toFixed(0)})</span>}.</p>
             <div className="flex flex-wrap items-end gap-4">
-              <Spin label="Bid" value={e.uBid} onDec={() => { e.uBid -= 1; force(); }} onInc={() => { e.uBid += 1; force(); }} color="text-open" />
-              <Spin label="Ask" value={e.uAsk} onDec={() => { e.uAsk -= 1; force(); }} onInc={() => { e.uAsk += 1; force(); }} color="text-closed" />
-              <Spin label="Size" value={e.uSize} onDec={() => { e.uSize = Math.max(1, e.uSize - 1); force(); }} onInc={() => { e.uSize += 1; force(); }} color="text-fg" />
+              <Spin label="Bid" value={e.uBid} onDec={() => { e.uBid -= 1; force(); }} onInc={() => { e.uBid += 1; force(); }} onSet={(v) => { e.uBid = v; force(); }} color="text-open" />
+              <Spin label="Ask" value={e.uAsk} onDec={() => { e.uAsk -= 1; force(); }} onInc={() => { e.uAsk += 1; force(); }} onSet={(v) => { e.uAsk = v; force(); }} color="text-closed" />
+              <Spin label="Size" value={e.uSize} onDec={() => { e.uSize = Math.max(1, e.uSize - 1); force(); }} onInc={() => { e.uSize += 1; force(); }} onSet={(v) => { e.uSize = Math.max(1, v); force(); }} color="text-fg" />
               <button type="button" className={btnCls} onClick={postMarket} disabled={e.uAsk <= e.uBid}>Post market →</button>
             </div>
           </div>
@@ -592,7 +664,13 @@ export default function HoldemMarket({
             <div className="flex flex-wrap items-center gap-2">
               <button type="button" disabled={!obb} onClick={outcryHit} className={`${ghostBtn} border-open/50 text-open hover:bg-open/10`}>Hit {obb ? `${obb.price} (${seatName(obb.seat)})` : '—'}</button>
               <button type="button" disabled={!oba} onClick={outcryLift} className={`${ghostBtn} border-closed/50 text-closed hover:bg-closed/10`}>Lift {oba ? `${oba.price} (${seatName(oba.seat)})` : '—'}</button>
-              <Spin label="Size" value={e.uSize} onDec={() => { e.uSize = Math.max(1, e.uSize - 1); force(); }} onInc={() => { e.uSize += 1; force(); }} color="text-fg" inline />
+              <Spin label="Size" value={e.uSize} onDec={() => { e.uSize = Math.max(1, e.uSize - 1); force(); }} onInc={() => { e.uSize += 1; force(); }} onSet={(v) => { e.uSize = Math.max(1, v); force(); }} color="text-fg" inline />
+            </div>
+            <div className="flex flex-wrap items-end gap-3 border-t border-steel pt-2">
+              <Spin label="Bid" value={e.uBid} onDec={() => { e.uBid -= 1; force(); }} onInc={() => { e.uBid += 1; force(); }} onSet={(v) => { e.uBid = v; force(); }} color="text-open" />
+              <Spin label="Ask" value={e.uAsk} onDec={() => { e.uAsk -= 1; force(); }} onInc={() => { e.uAsk += 1; force(); }} onSet={(v) => { e.uAsk = v; force(); }} color="text-closed" />
+              <button type="button" onClick={postOutcryMarket} disabled={e.uAsk <= e.uBid} className={ghostBtn}>{e.quotes[0].live ? 'Update my market →' : 'Post my market →'}</button>
+              {e.quotes[0].live && <span className="font-mono text-[11px] text-violet-light">resting {e.uBid}/{e.uAsk}</span>}
             </div>
           </div>
         )}
@@ -670,13 +748,26 @@ function FlipCard({ c, up }: { c: Card; up: boolean }) {
     </div>
   );
 }
-function Spin({ label, value, onDec, onInc, color, inline }: { label: string; value: number; onDec: () => void; onInc: () => void; color: string; inline?: boolean }) {
+function Spin({ label, value, onDec, onInc, onSet, color, inline }: { label: string; value: number; onDec: () => void; onInc: () => void; onSet?: (v: number) => void; color: string; inline?: boolean }) {
+  const [raw, setRaw] = useState(String(value));
+  useEffect(() => { setRaw(String(value)); }, [value]);
   return (
     <div className={inline ? 'flex items-center gap-2' : ''}>
       <p className="font-mono text-[10px] uppercase tracking-wide text-muted">{label}</p>
       <div className="flex items-center gap-1 mt-0.5">
         <button type="button" onClick={onDec} className="font-mono text-sm w-7 h-7 rounded border border-steel text-muted hover:text-fg leading-none">−</button>
-        <span className={`font-mono text-lg w-10 text-center ${color}`}>{value}</span>
+        <input
+          inputMode="numeric"
+          value={raw}
+          aria-label={label}
+          onChange={(ev) => {
+            setRaw(ev.target.value);
+            const n = Number(ev.target.value);
+            if (ev.target.value.trim() !== '' && !Number.isNaN(n) && onSet) onSet(Math.round(n));
+          }}
+          onBlur={() => setRaw(String(value))}
+          className={`font-mono text-lg w-12 text-center bg-bg border border-steel rounded ${color}`}
+        />
         <button type="button" onClick={onInc} className="font-mono text-sm w-7 h-7 rounded border border-steel text-muted hover:text-fg leading-none">+</button>
       </div>
     </div>
