@@ -176,152 +176,152 @@ const BANK: FirmCategory = 'Bank';
 export const quizQuestions: QuizQuestion[] = [
   {
     id: 'q1',
-    prompt: 'Your ideal day-to-day looks most like…',
+    prompt: 'Pick the screen you could happily stare at for ten hours straight.',
     options: [
-      { label: 'Quoting markets and managing live risk in real time', types: { [PROP]: 2 }, styles: ['Trading'], highPace: true },
-      { label: 'Researching signals and models from data', types: { [FUND]: 2, [HFT]: 1 }, styles: ['Research'] },
-      { label: 'Building fast, reliable trading systems', types: { [HFT]: 2 }, styles: ['Engineering'] },
-      { label: 'Structured projects across a big org with mentorship', types: { [BANK]: 2 } },
+      { label: 'A live order book you\'re quoting into — you against the flow.', types: { [PROP]: 2 }, styles: ['Trading'], highPace: true },
+      { label: 'A research notebook, hunting for signal in a sea of noise.', types: { [FUND]: 2, [HFT]: 1 }, styles: ['Research'] },
+      { label: 'A profiler, shaving microseconds off a hot code path.', types: { [HFT]: 2 }, styles: ['Engineering'] },
+      { label: 'A tidy project plan with a mentor and a clear ladder up.', types: { [BANK]: 2 } },
     ],
   },
   {
     id: 'q2',
-    prompt: 'How do you feel about timed mental-math tests (e.g. 80 questions in 8 minutes)?',
+    prompt: '80 mental-arithmetic questions. 8 minutes. No calculator. Your gut reaction?',
     options: [
-      { label: 'Bring it on — I\'m fast and accurate', types: { [PROP]: 2 }, styles: ['Trading'] },
-      { label: 'Fine, but I prefer deeper problems', types: { [FUND]: 1, [HFT]: 1 } },
-      { label: 'I\'d rather be coding', types: { [HFT]: 1 }, styles: ['Engineering'] },
-      { label: 'I prefer structured aptitude tests', types: { [BANK]: 1 } },
+      { label: 'Finally — a chance to show off.', types: { [PROP]: 2 }, styles: ['Trading'] },
+      { label: 'I\'ll pass it. Wake me when the real problems start.', types: { [FUND]: 1, [HFT]: 1 } },
+      { label: 'Can I submit a script instead?', types: { [HFT]: 1 }, styles: ['Engineering'] },
+      { label: 'I\'d take a structured aptitude test over this, thanks.', types: { [BANK]: 1 } },
     ],
   },
   {
     id: 'q3',
-    prompt: 'Which problem would you most enjoy?',
+    prompt: 'A genie grants you exactly one problem to chew on all day. You pick:',
     options: [
-      { label: '"Make a market on…" — an EV/betting game', types: { [PROP]: 2 }, styles: ['Trading'] },
-      { label: 'Find predictive structure in a noisy dataset', types: { [FUND]: 2 }, styles: ['Research'] },
-      { label: 'Optimise a hot code path to shave microseconds', types: { [HFT]: 2 }, styles: ['Engineering'] },
-      { label: 'Price a derivative with stochastic calculus', types: { [BANK]: 2, [FUND]: 1 }, styles: ['Research'] },
+      { label: 'Make a tight two-way market on something nobody can price.', types: { [PROP]: 2 }, styles: ['Trading'] },
+      { label: 'Pull a faint, repeatable edge out of genuinely messy data.', types: { [FUND]: 2 }, styles: ['Research'] },
+      { label: 'Make the whole system 10× faster without breaking it.', types: { [HFT]: 2 }, styles: ['Engineering'] },
+      { label: 'Price a nasty exotic properly, with the maths to defend it.', types: { [BANK]: 2, [FUND]: 1 }, styles: ['Research'] },
     ],
   },
   {
     id: 'q4',
-    prompt: 'Which team structure appeals most?',
+    prompt: 'Your ideal crew looks like…',
     options: [
-      { label: 'Small collaborative trading team with shared P&L', types: { [PROP]: 2 }, styles: ['Trading'] },
-      { label: 'Pod/desk with clear individual accountability', types: { [FUND]: 2 }, highPace: true },
-      { label: 'Research-lab atmosphere', types: { [HFT]: 1, [FUND]: 1 }, styles: ['Research'] },
-      { label: 'Large, structured graduate cohort', types: { [BANK]: 2 } },
+      { label: 'A tight pod on one shared P&L — we win or lose together.', types: { [PROP]: 2 }, styles: ['Trading'] },
+      { label: 'My own book, my own number, nowhere to hide.', types: { [FUND]: 2 }, highPace: true },
+      { label: 'A quiet lab full of people slightly smarter than me.', types: { [HFT]: 1, [FUND]: 1 }, styles: ['Research'] },
+      { label: 'A big cohort with a proper training programme.', types: { [BANK]: 2 } },
     ],
   },
   {
     id: 'q5',
-    prompt: 'On pace and pressure, you…',
+    prompt: 'It\'s 9:31am and the market just gapped hard. You feel…',
     options: [
-      { label: 'Thrive in high-pressure, volatile moments', types: { [PROP]: 1, [FUND]: 1 }, highPace: true },
-      { label: 'Prefer steady, deep focus', types: { [HFT]: 1, [FUND]: 1 } },
-      { label: 'Value predictable hours', types: { [BANK]: 2 } },
-      { label: 'Love fast, high-stakes decisions', types: { [PROP]: 2 }, styles: ['Trading'], highPace: true },
+      { label: 'Alive. This is the fun part.', types: { [PROP]: 2 }, styles: ['Trading'], highPace: true },
+      { label: 'Focused — let me see what the models are saying.', types: { [HFT]: 1, [FUND]: 1 } },
+      { label: 'Quietly glad my role isn\'t tied to the next five minutes.', types: { [BANK]: 2 } },
+      { label: 'Ice-cold. High stakes are where I do my best work.', types: { [PROP]: 1, [FUND]: 1 }, highPace: true },
     ],
   },
   {
     id: 'q6',
-    prompt: 'How deep is your programming?',
+    prompt: 'Be honest about your relationship with code.',
     options: [
-      { label: 'I love low-level/systems and performance', types: { [HFT]: 2 }, styles: ['Engineering'] },
-      { label: 'I use code as a research tool (Python/ML)', types: { [FUND]: 2 }, styles: ['Research'] },
-      { label: 'Some coding, but mostly markets reasoning', types: { [PROP]: 1 }, styles: ['Trading'] },
-      { label: 'Coding is one part of a broader role', types: { [BANK]: 1 } },
+      { label: 'I think in cache lines and latency.', types: { [HFT]: 2 }, styles: ['Engineering'] },
+      { label: 'Python and a notebook are basically how I think.', types: { [FUND]: 2 }, styles: ['Research'] },
+      { label: 'I can code — but markets are my real first language.', types: { [PROP]: 1 }, styles: ['Trading'] },
+      { label: 'It\'s one useful tool in a broader kit.', types: { [BANK]: 1 } },
     ],
   },
   {
     id: 'q7',
-    prompt: 'Which academic background is closest to you?',
+    prompt: 'Your origin story is closest to…',
     options: [
-      { label: 'Maths / olympiad / competitions', types: { [PROP]: 1, [HFT]: 1, [FUND]: 1 } },
-      { label: 'CS / competitive programming', types: { [HFT]: 2 }, styles: ['Engineering'] },
-      { label: 'Statistics / ML / PhD-track', types: { [FUND]: 2 }, styles: ['Research'] },
-      { label: 'Finance / economics / engineering generalist', types: { [BANK]: 2 } },
+      { label: 'Maths-olympiad kid who never quite stopped competing.', types: { [PROP]: 1, [HFT]: 1, [FUND]: 1 } },
+      { label: 'Competitive programmer who likes things fast and correct.', types: { [HFT]: 2 }, styles: ['Engineering'] },
+      { label: 'Stats/ML person who lights up at a good dataset.', types: { [FUND]: 2 }, styles: ['Research'] },
+      { label: 'Finance/econ/engineering all-rounder.', types: { [BANK]: 2 } },
     ],
   },
   {
     id: 'q8',
-    prompt: 'Where would you most like to be based?',
+    prompt: 'Drop a pin. Where do you actually want to wake up for work?',
     options: [
-      { label: 'London', locale: 'London' },
-      { label: 'New York / US (incl. Chicago)', locale: 'New York' },
-      { label: 'Amsterdam / continental Europe', locale: 'Amsterdam' },
-      { label: 'Asia (Hong Kong / Singapore)', locale: 'Asia' },
+      { label: 'London.', locale: 'London' },
+      { label: 'New York / Chicago — the US grind.', locale: 'New York' },
+      { label: 'Amsterdam / Europe — bikes and a bit of balance.', locale: 'Amsterdam' },
+      { label: 'Hong Kong / Singapore — Asia hours.', locale: 'Asia' },
     ],
   },
   {
     id: 'q9',
-    prompt: 'What draws you most to a firm?',
+    prompt: 'The thing that genuinely gets you out of bed:',
     options: [
-      { label: 'Top-of-market compensation', types: { [PROP]: 1, [FUND]: 1 } },
-      { label: 'Cutting-edge tech and latency', types: { [HFT]: 2 }, styles: ['Engineering'] },
-      { label: 'An intellectual research culture', types: { [FUND]: 2 }, styles: ['Research'] },
-      { label: 'Brand, training and long-term options', types: { [BANK]: 2 } },
+      { label: 'A number on the paycheck that makes people choke on their coffee.', types: { [PROP]: 1, [FUND]: 1 } },
+      { label: 'Tech so sharp it\'s basically sci-fi.', types: { [HFT]: 2 }, styles: ['Engineering'] },
+      { label: 'Being surrounded by seriously good research.', types: { [FUND]: 2 }, styles: ['Research'] },
+      { label: 'A brand and a network that opens every door later.', types: { [BANK]: 2 } },
     ],
   },
   {
     id: 'q10',
-    prompt: 'Which phrase resonates most?',
+    prompt: 'Which bumper sticker would you actually put on your laptop?',
     options: [
-      { label: '"Edge, EV and bet sizing" (a poker mindset)', types: { [PROP]: 2 }, styles: ['Trading'] },
-      { label: '"The data is the alpha"', types: { [FUND]: 2 }, styles: ['Research'] },
-      { label: '"Speed is the product"', types: { [HFT]: 2 }, styles: ['Engineering'] },
-      { label: '"Models and risk frameworks"', types: { [BANK]: 1, [FUND]: 1 } },
+      { label: '"It\'s all just EV and bet sizing."', types: { [PROP]: 2 }, styles: ['Trading'] },
+      { label: '"The data is the alpha."', types: { [FUND]: 2 }, styles: ['Research'] },
+      { label: '"Speed is the product."', types: { [HFT]: 2 }, styles: ['Engineering'] },
+      { label: '"Trust the model, respect the risk."', types: { [BANK]: 1, [FUND]: 1 } },
     ],
   },
   {
     id: 'q11',
-    prompt: 'How much do you want to be client/desk-facing?',
+    prompt: 'How do you feel about having clients?',
     options: [
-      { label: 'Not at all — pure proprietary', types: { [PROP]: 1, [HFT]: 1 } },
-      { label: 'Some structuring/desk interaction is good', types: { [BANK]: 2 } },
-      { label: 'I prefer focused research', types: { [FUND]: 1 }, styles: ['Research'] },
-      { label: 'It doesn\'t matter much to me', types: { [HFT]: 1 } },
+      { label: 'Hard pass — pure prop, just me and the market.', types: { [PROP]: 1, [HFT]: 1 } },
+      { label: 'A little desk/structuring contact keeps it interesting.', types: { [BANK]: 2 } },
+      { label: 'Leave me alone with my research, please.', types: { [FUND]: 1 }, styles: ['Research'] },
+      { label: 'Genuinely don\'t mind either way.', types: { [HFT]: 1 } },
     ],
   },
   {
     id: 'q12',
-    prompt: 'Your reaction to being wrong or losing money?',
+    prompt: 'You just lost money on a trade you were certain about. Next move?',
     options: [
-      { label: 'Update fast and move on — it\'s part of trading', types: { [PROP]: 2 }, styles: ['Trading'], highPace: true },
-      { label: 'Analyse the model and iterate', types: { [FUND]: 1, [HFT]: 1 }, styles: ['Research'] },
-      { label: 'I prefer roles less directly tied to live P&L', types: { [BANK]: 1 } },
-      { label: 'Stay calm under fire — high stakes are fine', types: { [PROP]: 1, [HFT]: 1 }, highPace: true },
+      { label: 'Cut it, shrug, re-rack. On to the next.', types: { [PROP]: 2 }, styles: ['Trading'], highPace: true },
+      { label: 'Open the model and work out exactly what I missed.', types: { [FUND]: 1, [HFT]: 1 }, styles: ['Research'] },
+      { label: 'Honestly? I\'d rather my name not be on a live P&L.', types: { [BANK]: 1 } },
+      { label: 'Stay calm — tilt is how you actually go broke.', types: { [PROP]: 1, [HFT]: 1 }, highPace: true },
     ],
   },
   {
     id: 'q13',
-    prompt: 'Company size preference?',
+    prompt: 'Pick your pond.',
     options: [
-      { label: 'Boutique / smaller, with more visibility', types: { [PROP]: 1 } },
-      { label: 'Mid-large specialist', types: { [HFT]: 1, [FUND]: 1 } },
-      { label: 'Massive multi-strategy platform', types: { [FUND]: 2 }, highPace: true },
-      { label: 'Global bank', types: { [BANK]: 2 } },
+      { label: 'A boutique where everyone knows my name.', types: { [PROP]: 1 } },
+      { label: 'A focused specialist that\'s world-class at one thing.', types: { [HFT]: 1, [FUND]: 1 } },
+      { label: 'A giant multi-strat platform with near-infinite resources.', types: { [FUND]: 2 }, highPace: true },
+      { label: 'A global bank with a flag on every other building.', types: { [BANK]: 2 } },
     ],
   },
   {
     id: 'q14',
-    prompt: 'Which interview prep would you enjoy most?',
+    prompt: 'Which interview loop sounds almost… fun?',
     options: [
-      { label: 'Market-making and probability games', types: { [PROP]: 2 }, styles: ['Trading'] },
-      { label: 'Statistics/ML and defending a research project', types: { [FUND]: 2 }, styles: ['Research'] },
-      { label: 'Hard algorithms and systems design', types: { [HFT]: 2 }, styles: ['Engineering'] },
-      { label: 'Derivatives, stochastic calculus and competency rounds', types: { [BANK]: 2 } },
+      { label: 'Market-making games and probability puzzles.', types: { [PROP]: 2 }, styles: ['Trading'] },
+      { label: 'Defending a research project to sharp questioners.', types: { [FUND]: 2 }, styles: ['Research'] },
+      { label: 'Hard algorithms and a systems-design whiteboard.', types: { [HFT]: 2 }, styles: ['Engineering'] },
+      { label: 'Derivatives, a little stoch calc, and competency rounds.', types: { [BANK]: 2 } },
     ],
   },
   {
     id: 'q15',
-    prompt: 'Your long-term ambition?',
+    prompt: 'Fast-forward ten years. You\'re the person who…',
     options: [
-      { label: 'Become a senior trader running a book', types: { [PROP]: 2 }, styles: ['Trading'] },
-      { label: 'Lead quant research / publish models', types: { [FUND]: 2 }, styles: ['Research'] },
-      { label: 'Architect trading infrastructure', types: { [HFT]: 2 }, styles: ['Engineering'] },
-      { label: 'A broad finance career with optionality', types: { [BANK]: 2 } },
+      { label: 'Runs a trading book and a tight team.', types: { [PROP]: 2 }, styles: ['Trading'] },
+      { label: 'Leads research and ships models that move the needle.', types: { [FUND]: 2 }, styles: ['Research'] },
+      { label: 'Architected the infrastructure everything else runs on.', types: { [HFT]: 2 }, styles: ['Engineering'] },
+      { label: 'Has optionality — and could go anywhere next.', types: { [BANK]: 2 } },
     ],
   },
 ];
@@ -389,6 +389,13 @@ export interface QuizResult {
   topFirms: FirmResult[];
 }
 
+/** Join clauses naturally: "a", "a and b", "a, b, and c". */
+function joinReasons(parts: string[]): string {
+  if (parts.length <= 1) return parts[0] ?? '';
+  if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
+  return `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`;
+}
+
 /** answers maps questionId -> selected option index. */
 export function scoreQuiz(answers: Record<string, number>): QuizResult {
   const typePoints: Record<FirmCategory, number> = {
@@ -449,19 +456,25 @@ export function scoreQuiz(answers: Record<string, number>): QuizResult {
 
       const score = 3 * typeNorm + 1.5 * styleScore + 1.5 * localeMatch + 1 * paceMatch;
 
+      // Build a proper "why this suits you" sentence from the firm's own
+      // one-liner plus the signals that actually matched the user's answers.
       const reasons: string[] = [];
-      if (typeNorm >= 0.75) reasons.push(`strong ${guideByCat.get(f.category)?.nick ?? f.category} fit`);
-      else if (typeNorm >= 0.4) reasons.push(`${f.category} fit`);
-      if (primaryStyle && t.styles.includes(primaryStyle)) reasons.push(`${primaryStyle.toLowerCase()} focus`);
-      if (localeMatch) reasons.push(`${locale} office`);
-      if (paceMatch && userPace === 'High') reasons.push('high-intensity');
+      if (typeNorm >= 0.6) reasons.push(`it’s squarely your top firm-type, ${guideByCat.get(f.category)?.nick ?? f.category}`);
+      if (primaryStyle && t.styles.includes(primaryStyle)) reasons.push(`it plays to your ${primaryStyle.toLowerCase()} strengths`);
+      if (localeMatch && locale) reasons.push(`it has a ${locale} office`);
+      if (paceMatch && userPace === 'High') reasons.push('it matches your high-intensity streak');
+
+      const why =
+        reasons.length > 0
+          ? `${f.oneLiner} Shortlisted because ${joinReasons(reasons)}.`
+          : `${f.oneLiner} A solid all-round fit for your answers.`;
 
       return {
         id: f.id,
         name: f.name,
         category: f.category,
         score,
-        why: reasons.length ? reasons.join(' · ') : 'broad match',
+        why,
       };
     })
     .sort((a, b) => b.score - a.score)
