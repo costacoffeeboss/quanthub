@@ -1,5 +1,151 @@
 import { Link } from 'react-router-dom';
-import { H, H3, KeyIdea, Example, PlainEnglish, InterviewAngle, Table, prose } from '../lessonKit';
+import { H, H3, SubSection, KeyIdea, Example, PlainEnglish, InterviewAngle, Table, prose } from '../lessonKit';
+import type { QuizQuestion } from '../../../data/optionsCourse';
+
+const checks_7_1: QuizQuestion[] = [
+  {
+    id: 'chk-struct-1a',
+    type: 'mcq',
+    prompt: 'In a bull call spread, what is the role of the higher-strike call you sell?',
+    choices: [
+      'It increases your upside potential',
+      'It caps your upside but lowers your cost',
+      'It removes all risk from the position',
+      'It is the same option you also buy',
+    ],
+    answerIndex: 1,
+    explanation:
+      'Selling the higher-strike call caps your maximum payoff at the strike width, but the premium it brings in slashes your net cost — a defined-risk bet on a moderate rise.',
+  },
+  {
+    id: 'chk-struct-1b',
+    type: 'numeric',
+    prompt:
+      'You buy the 95-strike call for £7 and sell the 105-strike call for £3. What is the maximum profit of this bull call spread?',
+    answer: 6,
+    tolerance: 0.01,
+    unit: '£',
+    explanation:
+      'Net cost = 7 − 3 = £4 (the max loss). Max payoff = strike width = 105 − 95 = £10. Max profit = 10 − 4 = £6.',
+  },
+];
+
+const checks_7_2: QuizQuestion[] = [
+  {
+    id: 'chk-struct-2a',
+    type: 'numeric',
+    prompt:
+      'You pay £10 total for a 100-strike straddle (the 100 call plus the 100 put). What is the upper breakeven price?',
+    answer: 110,
+    tolerance: 0.01,
+    unit: '£',
+    explanation:
+      'Breakevens = strike ± total premium = 100 ± 10, i.e. £90 and £110. Above £110 (or below £90) the move was big enough to pay for both options.',
+  },
+  {
+    id: 'chk-struct-2b',
+    type: 'mcq',
+    prompt: 'Which structure is a bet that the stock will go nowhere and pins a middle strike?',
+    choices: ['A straddle', 'A strangle', 'A butterfly', 'A bull call spread'],
+    answerIndex: 2,
+    explanation:
+      'A butterfly buys the low and high "wings" and sells two of the middle "body" strike. It is the opposite of a straddle: it pays off best if the stock pins the middle strike at expiry.',
+  },
+];
+
+const checks_7_3: QuizQuestion[] = [
+  {
+    id: 'chk-struct-3a',
+    type: 'mcq',
+    prompt: 'What does a covered call involve?',
+    choices: [
+      'Owning the stock and buying a put against it',
+      'Owning the stock and selling a call against it',
+      'Selling both a call and a put with no stock',
+      'Buying a call and a put at the same strike',
+    ],
+    answerIndex: 1,
+    explanation:
+      'A covered call means you own the stock and sell a call against it: you pocket premium income and give up some upside — a way to earn yield on a holding you would be happy to sell at the strike.',
+  },
+  {
+    id: 'chk-struct-3b',
+    type: 'mcq',
+    prompt: 'A protective put is best described as what?',
+    choices: [
+      'A way to earn extra yield on a stock you own',
+      'Insurance — a floor under your position, paid for with the premium',
+      'A pure bet that the stock will move a lot',
+      'A bet that the stock will go nowhere',
+    ],
+    answerIndex: 1,
+    explanation:
+      'Owning the stock and buying a put is literally insurance: it places a floor under your position in exchange for the premium. (Recall stock + put behaves like a call.)',
+  },
+];
+
+const checks_7_4: QuizQuestion[] = [
+  {
+    id: 'chk-struct-4a',
+    type: 'mcq',
+    prompt:
+      'When, if ever, is it worth exercising an American call on a non-dividend stock early?',
+    choices: [
+      'Always, to lock in the intrinsic value',
+      'Never — you are better off selling the call to recover its time value',
+      'Whenever it goes in the money',
+      'Only when interest rates are very high',
+    ],
+    answerIndex: 1,
+    explanation:
+      'Exercising early throws away remaining time value and forces you to pay the strike sooner (losing interest on the cash). You should sell the call instead. The only early-exercise case for calls is to capture a dividend.',
+  },
+  {
+    id: 'chk-struct-4b',
+    type: 'mcq',
+    prompt: 'For an American put, early exercise becomes more attractive when:',
+    choices: [
+      'The put is far out of the money and rates are low',
+      'The put is deep in the money and interest rates are high',
+      'The stock pays no dividend',
+      'There is a lot of time value remaining',
+    ],
+    answerIndex: 1,
+    explanation:
+      'Exercising a deep-ITM put hands you the strike in cash now, which you can reinvest. The higher interest rates are, the stronger that time-value-of-money benefit relative to the shrinking time value you give up.',
+  },
+];
+
+const checks_7_5: QuizQuestion[] = [
+  {
+    id: 'chk-struct-5a',
+    type: 'mcq',
+    prompt: 'A digital (binary) option pays off how?',
+    choices: [
+      'A fixed amount if in the money, nothing otherwise',
+      'The average price over a window',
+      'Like a vanilla, but dies if a barrier is touched',
+      'Springs into existence only if a barrier is touched',
+    ],
+    answerIndex: 0,
+    explanation:
+      'A digital / binary option is all-or-nothing: it pays a fixed amount if in the money and nothing otherwise — a step, not a slope.',
+  },
+  {
+    id: 'chk-struct-5b',
+    type: 'mcq',
+    prompt: 'Why is a knock-out (barrier) option cheaper than the equivalent vanilla?',
+    choices: [
+      'Because it settles on an average price',
+      'Because the price path can touch the barrier and extinguish the option',
+      'Because it pays a fixed all-or-nothing amount',
+      'Because it only exists once the barrier is touched',
+    ],
+    answerIndex: 1,
+    explanation:
+      'A knock-out behaves like a vanilla but dies if the price touches the barrier. That extra way to lose makes it cheaper — each tweak to the payoff rule is a tweak to the price.',
+  },
+];
 
 export default function Structures() {
   return (
@@ -17,8 +163,7 @@ export default function Structures() {
         </p>
       </section>
 
-      <section className="space-y-4 max-w-3xl">
-        <H>Vertical spreads: cheaper, capped bets</H>
+      <SubSection n="7.1" title="Vertical spreads: cheaper, capped bets" check={checks_7_1}>
         <p className={prose}>
           A <strong>spread</strong> means buying one option and selling another of the same type to part-fund
           it. The classic is the <strong>bull call spread</strong>: buy a lower-strike call, sell a
@@ -37,10 +182,9 @@ export default function Structures() {
           there is a matching bear put spread for the downside. Spreads are how traders express a{' '}
           <em>moderate</em> view without paying for unlimited upside they do not expect to use.
         </PlainEnglish>
-      </section>
+      </SubSection>
 
-      <section className="space-y-4 max-w-3xl">
-        <H>Straddles and strangles: betting on movement</H>
+      <SubSection n="7.2" title="Straddles, strangles and butterflies: betting on movement (or stillness)" check={checks_7_2}>
         <p className={prose}>
           Buy a call <em>and</em> a put at the same strike and you have a <strong>straddle</strong> — a pure bet
           that the stock will <strong>move a lot, in either direction</strong>. You do not care which way; you
@@ -52,28 +196,23 @@ export default function Structures() {
           <p>Breakevens = strike ± total premium = 100 ± 10, i.e. <strong>£90 and £110</strong>.</p>
           <p>Outside that range you profit; inside it the move was too small to pay for the options. Your enemy is a quiet market (theta) and falling implied vol.</p>
         </Example>
-      </section>
-
-      <section className="space-y-4 max-w-3xl">
-        <H>Butterflies: betting on stillness</H>
+        <H3>Butterflies: betting on stillness</H3>
         <p className={prose}>
           A <strong>butterfly</strong> is the opposite bet: that the stock will go <em>nowhere</em>. You buy the
           “wings” (a low and a high strike) and sell two of the middle “body” strike. It is cheap, with defined
           risk, and pays off best if the stock <strong>pins</strong> the middle strike at expiry. Straddle =
           “big move please”; butterfly = “please don’t move.”
         </p>
-      </section>
+      </SubSection>
 
-      <section className="space-y-4 max-w-3xl">
-        <H>Two everyday hedger’s structures</H>
+      <SubSection n="7.3" title="Two everyday hedger’s structures" check={checks_7_3}>
         <ul className="space-y-2 text-sm text-muted list-disc pl-5">
           <li><strong className="text-fg">Covered call.</strong> You own the stock and sell a call against it. You pocket premium income and give up some upside — a way to earn yield on a holding you would be happy to sell at the strike.</li>
           <li><strong className="text-fg">Protective put.</strong> You own the stock and buy a put. That is literally insurance: a floor under your position, paid for with the premium. (And recall from Chapter 2 that stock + put behaves like a call.)</li>
         </ul>
-      </section>
+      </SubSection>
 
-      <section className="space-y-4 max-w-3xl">
-        <H>American options: when to exercise early</H>
+      <SubSection n="7.4" title="American options: when to exercise early" check={checks_7_4}>
         <p className={prose}>
           American options let you exercise any time. But <em>should</em> you? The answers are sharper than most
           people expect.
@@ -99,10 +238,9 @@ export default function Structures() {
           American put, deep in the money with high rates: early exercise <strong>can</strong> be worth it, to
           collect and reinvest the strike.
         </KeyIdea>
-      </section>
+      </SubSection>
 
-      <section className="space-y-4 max-w-3xl">
-        <H>A first look at exotics</H>
+      <SubSection n="7.5" title="A first look at exotics" check={checks_7_5}>
         <p className={prose}>
           Beyond vanilla calls and puts lies a zoo of options with custom payoffs. You do not need to price them
           to recognise them — and the Greeks intuition you have built still guides the risk.
@@ -121,7 +259,7 @@ export default function Structures() {
           condition that can wipe out the option makes it cheaper; averaging that smooths the payoff lowers its
           effective volatility. Exotics are vanilla intuition plus a twist.
         </p>
-      </section>
+      </SubSection>
 
       <section className="max-w-3xl">
         <InterviewAngle>

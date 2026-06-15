@@ -1,10 +1,49 @@
 import type { ReactNode } from 'react';
+import type { QuizQuestion } from '../../data/optionsCourse';
+import Quiz from '../../components/options/Quiz';
 
 /**
  * Shared presentational building blocks for the Options course lessons.
  * Kept deliberately small and on-brand (panel / steel / violet / plum tokens)
  * so chapter files can focus on content, not markup.
  */
+
+/**
+ * A numbered sub-chapter: a labelled heading, the lesson content, and an
+ * optional formative "Check your understanding" quiz tied to what was just
+ * taught. The check is instant-feedback only — it never gates progression
+ * (that is the job of the chapter's final exam).
+ */
+export function SubSection({
+  n,
+  title,
+  check,
+  children,
+}: {
+  /** e.g. "3.1" */
+  n: string;
+  title: string;
+  check?: QuizQuestion[];
+  children: ReactNode;
+}) {
+  return (
+    <section id={`s${n.replace('.', '-')}`} className="space-y-5 scroll-mt-24">
+      <div className="flex items-baseline gap-3 border-b border-steel/60 pb-2">
+        <span className="font-mono text-sm text-violet-light tabular-nums">{n}</span>
+        <h2 className="text-xl font-bold">{title}</h2>
+      </div>
+      <div className="space-y-4">{children}</div>
+      {check && check.length > 0 && (
+        <div className="rounded-lg border border-soon/30 bg-soon/5 p-4 max-w-3xl">
+          <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-soon mb-3">
+            Check your understanding · {n}
+          </p>
+          <Quiz mode="check" questions={check} />
+        </div>
+      )}
+    </section>
+  );
+}
 
 /** Standard body-paragraph classes — import and spread onto <p>. */
 export const prose = 'text-sm leading-relaxed text-fg/90';

@@ -1,11 +1,157 @@
 import BlackScholesLab from '../../../components/options/BlackScholesLab';
-import { H, Formula, KeyIdea, Example, PlainEnglish, InterviewAngle, prose } from '../lessonKit';
+import { H3, Formula, KeyIdea, Example, PlainEnglish, InterviewAngle, SubSection, prose } from '../lessonKit';
+import type { QuizQuestion } from '../../../data/optionsCourse';
+
+const checks_4_1: QuizQuestion[] = [
+  {
+    id: 'chk-bs-1a',
+    type: 'mcq',
+    prompt: 'In the replication argument, why must an option cost exactly what its share-and-cash recipe costs?',
+    choices: [
+      'Because regulators fix the price at the recipe cost',
+      'Because otherwise you could buy the cheap one, sell the dear one, and lock in a risk-free profit',
+      'Because the option always pays off more than the shares',
+      'Because the recipe ignores volatility',
+    ],
+    answerIndex: 1,
+    explanation:
+      'If the option and its replicating portfolio had different prices, an arbitrageur would buy the cheaper and sell the dearer for a risk-free gain. No-arbitrage forces the two prices to match, so the option price is the cost of the recipe.',
+  },
+  {
+    id: 'chk-bs-1b',
+    type: 'mcq',
+    prompt: 'How many shares do you hold to track a call’s payoff as you delta-hedge it?',
+    choices: [
+      'A fixed number set at the start',
+      'Always one share per option',
+      'Delta shares, adjusted continuously as the stock moves',
+      'As many shares as the strike price',
+    ],
+    answerIndex: 2,
+    explanation:
+      'You hold delta shares and rebalance continuously: buying more as the stock rises (delta rises) and selling as it falls (delta falls). That continuous adjustment is delta hedging, and its running cost is the option’s fair price.',
+  },
+];
+
+const checks_4_2: QuizQuestion[] = [
+  {
+    id: 'chk-bs-2a',
+    type: 'mcq',
+    prompt: 'According to Black-Scholes, what does the fair option price depend on — and not depend on?',
+    choices: [
+      'It depends on the stock’s expected return, not its volatility',
+      'It depends on the stock’s volatility, not the direction you expect it to move',
+      'It depends on whether the trader is bullish or bearish',
+      'It depends only on the strike price',
+    ],
+    answerIndex: 1,
+    explanation:
+      'Delta hedging cancels out direction, so the expected return of the stock never appears in the formula. What is left is how much the stock wobbles — its volatility.',
+  },
+  {
+    id: 'chk-bs-2b',
+    type: 'mcq',
+    prompt: 'Two traders violently disagree about where a stock is heading. What does Black-Scholes imply about the option’s price?',
+    choices: [
+      'The bullish trader’s fair price is higher',
+      'They must still agree on the price, or one is leaving free money on the table',
+      'The price is undefined until they agree on direction',
+      'The price depends on whoever trades first',
+    ],
+    answerIndex: 1,
+    explanation:
+      'Because the price depends on volatility rather than directional opinion, both traders must agree on it. Any disagreement on price would be an arbitrage opportunity.',
+  },
+];
+
+const checks_4_3: QuizQuestion[] = [
+  {
+    id: 'chk-bs-3a',
+    type: 'mcq',
+    prompt: 'Of the five Black-Scholes inputs, which is the one you cannot simply read off a screen?',
+    choices: ['Spot (S)', 'Strike (K)', 'Time to expiry (T)', 'Volatility (σ)'],
+    answerIndex: 3,
+    explanation:
+      'Spot, strike, time and the risk-free rate are all observable. Volatility is the unobservable input that everything hinges on.',
+  },
+  {
+    id: 'chk-bs-3b',
+    type: 'numeric',
+    prompt: 'Using the rule of thumb 0.4 × S × σ × √T, estimate the ATM option value for S = £100, σ = 0.20, T = 1 year.',
+    answer: 8,
+    tolerance: 0.2,
+    unit: '£',
+    explanation:
+      '0.4 × 100 × 0.20 × √1 = £8. The exact Black-Scholes value here is about £7.97, so the shortcut is excellent at the money.',
+  },
+];
+
+const checks_4_4: QuizQuestion[] = [
+  {
+    id: 'chk-bs-4a',
+    type: 'mcq',
+    prompt: 'Why are we allowed to "pretend" investors are risk-neutral when pricing an option?',
+    choices: [
+      'Because investors really are indifferent to risk in practice',
+      'Because the payoff can be hedged away, so the price cannot depend on risk appetite — giving the same answer in an easier-to-compute pretend world',
+      'Because the risk-free rate is always zero',
+      'Because risk-neutral pricing ignores the payoff entirely',
+    ],
+    answerIndex: 1,
+    explanation:
+      'Since the payoff can be hedged, the price cannot depend on anyone’s risk appetite. We are therefore free to pretend everyone is risk-neutral, which is far easier to compute and yields the same price as the real world.',
+  },
+  {
+    id: 'chk-bs-4b',
+    type: 'mcq',
+    prompt: 'In the calculator, you set spot = strike and push the rate to 0. What happens to the call and put prices?',
+    choices: [
+      'The call becomes worthless',
+      'They become equal — put-call parity, live',
+      'The put becomes twice the call',
+      'Both collapse to zero',
+    ],
+    answerIndex: 1,
+    explanation:
+      'With spot equal to strike and a zero rate, put-call parity makes the call and put prices equal — the Chapter 2 relationship shown live in the lab.',
+  },
+];
+
+const checks_4_5: QuizQuestion[] = [
+  {
+    id: 'chk-bs-5a',
+    type: 'mcq',
+    prompt: 'What is implied volatility?',
+    choices: [
+      'The historical volatility measured over the past year',
+      'The volatility that makes the Black-Scholes price equal the actual market price',
+      'The volatility forecast published by the exchange',
+      'The volatility of the risk-free rate',
+    ],
+    answerIndex: 1,
+    explanation:
+      'Implied volatility is found by running Black-Scholes in reverse: it is the volatility that makes the model’s price match the option’s observed market price. Price and implied vol are interchangeable, so traders quote in vol.',
+  },
+  {
+    id: 'chk-bs-5b',
+    type: 'mcq',
+    prompt: 'Black-Scholes rests on assumptions that are not quite true. Why does it survive in practice?',
+    choices: [
+      'Because volatility really is constant and known',
+      'Because prices never gap on news',
+      'Because traders use it as a translation device, feeding in different implied vols per strike and expiry to patch over its flaws',
+      'Because trading is genuinely free and continuous',
+    ],
+    answerIndex: 2,
+    explanation:
+      'Its assumptions (constant known vol, smooth prices, free continuous hedging) fail, but traders treat the model as a translation device, plugging in different implied vols across strikes and expiries — the volatility surface.',
+  },
+];
 
 export default function BlackScholes() {
   return (
     <div className="space-y-12">
-      <section className="space-y-3 max-w-3xl">
-        <H>The question Black-Scholes answers</H>
+      <SubSection n="4.1" title="Pricing by replication" check={checks_4_1}>
         <p className={prose}>
           We can now read payoffs and Greeks, but one question remains: <strong>what is the fair price of an
           option today?</strong> A call might pay off anywhere from zero to a fortune depending on an unknown
@@ -17,10 +163,7 @@ export default function BlackScholes() {
           We will skip the differential equations entirely. The intuition is what interviewers want, and it is
           genuinely beautiful.
         </p>
-      </section>
-
-      <section className="space-y-4 max-w-3xl">
-        <H>The core idea: pricing by replication</H>
+        <H3>The core idea</H3>
         <p className={prose}>
           Here is the trick. Suppose you have <em>sold</em> a call and you are nervous about it. You could
           protect yourself by holding some shares — and we know from Chapter 3 how many: <strong>delta</strong>{' '}
@@ -39,10 +182,9 @@ export default function BlackScholes() {
           hedging” is the act of continuously adjusting those ingredients. The option’s fair price is the
           running cost of that hedging strategy from now until expiry. That is the whole model in one breath.
         </PlainEnglish>
-      </section>
+      </SubSection>
 
-      <section className="space-y-4 max-w-3xl">
-        <H>The famous surprise: direction doesn’t matter</H>
+      <SubSection n="4.2" title="The famous surprise: direction doesn’t matter" check={checks_4_2}>
         <p className={prose}>
           Common sense says a call should be worth more if you expect the stock to soar. Black-Scholes says{' '}
           <strong>no — the expected return of the stock does not appear in the formula at all.</strong> This
@@ -55,10 +197,9 @@ export default function BlackScholes() {
           your bullish or bearish opinion. Two traders who violently disagree about a stock’s future must still
           agree on its option price, or one of them is leaving free money on the table.
         </p>
-      </section>
+      </SubSection>
 
-      <section className="space-y-4 max-w-3xl">
-        <H>What goes into the formula</H>
+      <SubSection n="4.3" title="What goes into the formula" check={checks_4_3}>
         <p className={prose}>
           Black-Scholes takes five inputs. Four are observable; the interesting one is volatility.
         </p>
@@ -78,10 +219,9 @@ export default function BlackScholes() {
           <p>ATM value ≈ 0.4 × 100 × 0.20 × √1 = <strong>£8</strong>.</p>
           <p>The exact Black-Scholes value here is about £7.97 — the shortcut is excellent at the money.</p>
         </Example>
-      </section>
+      </SubSection>
 
-      <section className="space-y-4 max-w-3xl">
-        <H>Risk-neutral pricing, demystified</H>
+      <SubSection n="4.4" title="Risk-neutral pricing, and the model in action" check={checks_4_4}>
         <p className={prose}>
           You will hear that options are priced “in a risk-neutral world” — as if everyone were indifferent to
           risk and every asset grew at the risk-free rate. That is <em>not</em> a claim about reality. It is a
@@ -95,11 +235,8 @@ export default function BlackScholes() {
           probabilities, discounted back at the risk-free rate.
         </p>
         <Formula>price ≈ discounted expected payoff (under risk-neutral probabilities)</Formula>
-      </section>
-
-      <section className="space-y-4">
+        <H3>Play with the model</H3>
         <div className="max-w-3xl space-y-3">
-          <H>Play with the model</H>
           <p className={prose}>
             The calculator below is a real Black-Scholes engine. Drag the inputs and watch the price and Greeks
             respond. A few experiments that build intuition:
@@ -112,10 +249,9 @@ export default function BlackScholes() {
           </ul>
         </div>
         <BlackScholesLab />
-      </section>
+      </SubSection>
 
-      <section className="space-y-4 max-w-3xl">
-        <H>Implied volatility: the model run backwards</H>
+      <SubSection n="4.5" title="Implied volatility and where the model breaks" check={checks_4_5}>
         <p className={prose}>
           Here is the twist that turns a pricing formula into the language of an entire industry. In practice,
           nobody knows the “true” volatility to plug in. Instead, traders observe the option’s{' '}
@@ -129,10 +265,7 @@ export default function BlackScholes() {
           stable, comparable language than pounds. “The option is trading at 22 vol” says more than “the option
           costs £6.10.”
         </KeyIdea>
-      </section>
-
-      <section className="space-y-4 max-w-3xl">
-        <H>Where the model breaks (and why that’s fine)</H>
+        <H3>Where the model breaks (and why that’s fine)</H3>
         <p className={prose}>
           Black-Scholes rests on assumptions that are not quite true: that volatility is constant and known,
           that prices drift smoothly without sudden jumps, and that you can hedge continuously and for free.
@@ -143,9 +276,6 @@ export default function BlackScholes() {
           feed in different implied volatilities for different strikes and expiries to patch over its flaws —
           and the pattern of those patches is the “volatility surface,” the subject of the next chapter.
         </p>
-      </section>
-
-      <section className="max-w-3xl">
         <InterviewAngle>
           You will rarely be asked to derive Black-Scholes — and reciting the formula impresses nobody. What
           lands is the story: <em>an option can be replicated by delta-hedging; therefore its price is the cost
@@ -153,7 +283,7 @@ export default function BlackScholes() {
           answer as implied volatility.</em> Add that you know the assumptions fail and why the vol surface
           exists, and you are comfortably ahead of most candidates.
         </InterviewAngle>
-      </section>
+      </SubSection>
     </div>
   );
 }
