@@ -1,5 +1,6 @@
 import { useEffect, useReducer, useRef, useState } from 'react';
 import { usePersistentState } from '../lib/storage';
+import ReflectionGate, { ReflectToggle, type ReflectSpec } from '../components/ReflectionGate';
 
 /**
  * Hold'em Market Maker. Four seats (you + three bots) each get two private hole
@@ -198,6 +199,74 @@ function freshEngine(diff: Diff): Engine {
   return e;
 }
 
+// reflection: judging the market you just posted
+function buildHoldemPostReflection(e: Engine): ReflectSpec {
+  const known = seatKnown(e, 0);
+  const userFair = fairValue(known);
+  const pos = e.pos[0];
+  const mid = (e.uBid + e.uAsk) / 2;
+  const width = e.uAsk - e.uBid;
+  const unc = uncertainty(known.length);
+  const targetHalf = clamp(Math.round(0.22 * unc), 2, 14);
+  const targetWidth = 2 * targetHalf;
+  const bestBotBid = Math.max(e.quotes[1].bid, e.quotes[2].bid, e.quotes[3].bid);
+  const bestBotAsk = Math.min(e.quotes[1].ask, e.quotes[2].ask, e.quotes[3].ask);
+
+  const centreErr = mid - userFair;
+  const centered = Math.abs(centreErr) <= Math.max(1.5, width * 0.3);
+  const leanCorrect = pos > 0 ? centreErr < 0.4 : pos < 0 ? centreErr > -0.4 : true;
+  const wrongLean = (pos >= 3 && centreErr > 1) || (pos <= -3 && centreErr < -1);
+  const tooTight = width < targetWidth * 0.6;
+  const tooWide = width > targetWidth * 2.2;
+  const crossableBuy = bestBotAsk < userFair - 1;
+  const crossableSell = bestBotBid > userFair + 1;
+  const competitive = e.uBid >= bestBotBid - 1 || e.uAsk <= bestBotAsk + 1;
+
+  const chips = [
+    { id: 'fair', label: "It's centred on my fair value", sound: centered },
+    { id: 'lean', label: 'I leaned it to work off my position', sound: pos !== 0 && leanCorrect && Math.abs(centreErr) > 0.4 },
+    { id: 'wide', label: "I kept it wide — lots is still hidden", sound: e.roundIdx <= 1 && !tooTight },
+    { id: 'tight', label: 'I tightened to compete for flow', sound: e.roundIdx >= 2 && !tooWide && competitive },
+    { id: 'bots', label: "I priced it against the bots' markets", sound: competitive && !(crossableBuy || crossableSell) },
+  ];
+
+  let tier: ReflectSpec['verdict']['tier'];
+  let headline: string;
+  if (!centered) { tier = 'mistake'; headline = "your market isn't centred on your fair"; }
+  else if (wrongLean) { tier = 'mistake'; headline = 'you leaned the wrong way for your inventory'; }
+  else if (tooTight) { tier = 'mixed'; headline = 'tight for how much is still hidden'; }
+  else if (tooWide) { tier = 'mixed'; headline = 'wider than you need here'; }
+  else { tier = 'sound'; headline = 'a clean, well-placed market'; }
+
+  const points: string[] = [];
+  points.push(
+    `Your mid ${mid.toFixed(0)} vs your fair ${userFair.toFixed(0)} (${centreErr >= 0 ? '+' : ''}${centreErr.toFixed(0)}). ${centered ? 'Nicely centred.' : 'Quote around your fair, not away from it.'}`,
+  );
+  if (pos !== 0)
+    points.push(
+      `You're ${pos > 0 ? 'long' : 'short'} ${Math.abs(pos)} — ${pos > 0 ? 'lean your market down to encourage selling' : 'lean it up to buy back'}. ${leanCorrect ? 'You did.' : 'You leaned the other way, which adds to your risk.'}`,
+    );
+  else points.push('Flat inventory, so no lean is needed — just quote the value.');
+  points.push(
+    `Width ${width.toFixed(0)} vs a sensible ~${targetWidth} for this much hidden. ${tooTight ? 'A touch tight — you can get picked off.' : tooWide ? 'Wider than necessary — you win less flow.' : 'Reasonable.'}`,
+  );
+  if (crossableSell) points.push(`A bot is bidding ${bestBotBid} — above your fair. You could be selling into that.`);
+  else if (crossableBuy) points.push(`A bot is offering ${bestBotAsk} — below your fair. You could be lifting that.`);
+  else points.push(`Bots' inside market is ${bestBotBid} / ${bestBotAsk} — ${competitive ? "you're competitive with it." : "you're well off it, so you'll trade little."}`);
+
+  return {
+    question: 'Why did you show that market?',
+    facts: [
+      { label: 'Fair', value: `~${userFair.toFixed(0)}` },
+      { label: 'Position', value: `${pos > 0 ? '+' : ''}${pos}` },
+      { label: 'You', value: `${e.uBid} / ${e.uAsk}` },
+      { label: 'Bots', value: `${bestBotBid} / ${bestBotAsk}` },
+    ],
+    chips,
+    verdict: { tier, headline, points },
+  };
+}
+
 export interface HoldemSummary {
   pnl: number;
   rank: number;
@@ -213,6 +282,8 @@ export default function HoldemMarket({
   onComplete?: (summary: HoldemSummary) => void;
 } = {}) {
   const [best, setBest] = usePersistentState<number | null>('qh:hiscore:holdem', null);
+  const [reflect, setReflect] = usePersistentState<boolean>('qh:reflect', false);
+  const [pendingReflect, setPendingReflect] = useState<ReflectSpec | null>(null);
   const [phase, setPhase] = useState<'idle' | 'play' | 'settle'>('idle');
   const [diff, setDiff] = useState<Diff>('med');
   const [hint, setHint] = useState(false);
@@ -279,7 +350,9 @@ export default function HoldemMarket({
         if (sz > 0) { doTrade(e, seat, 0, e.uAsk, sz); q0.askSz -= sz; fills.push(`${cfg.name} lifted your ${e.uAsk} offer ×${sz}`); }
       }
     }
-    e.lastFills = fills; e.sub = 'resolved'; force();
+    e.lastFills = fills; e.sub = 'resolved';
+    if (reflect && (e.roundIdx === 0 || e.roundIdx === 2)) setPendingReflect(buildHoldemPostReflection(e));
+    force();
   }
   function continueResolved() { const e = g.current; if (!e) return; advanceTurn(e); force(); }
   function openOutcry() { const e = g.current; if (!e) return; e.sub = 'outcry'; e.outcryLeft = OUTCRY_MS; setRunning(true); force(); }
@@ -343,6 +416,7 @@ export default function HoldemMarket({
               <input type="checkbox" checked={hint} onChange={(ev) => setHint(ev.target.checked)} className="accent-[#6d4aff]" />
               Show fair-value hint (your conditional EV)
             </label>
+            <ReflectToggle on={reflect} onChange={setReflect} />
           </div>
           <button type="button" className={btnCls} onClick={startGame}>Deal →</button>
         </div>
@@ -447,6 +521,9 @@ export default function HoldemMarket({
       </div>
 
       {/* action / controls */}
+      {pendingReflect ? (
+        <ReflectionGate spec={pendingReflect} onContinue={() => setPendingReflect(null)} />
+      ) : (
       <div className="rounded-lg border border-steel bg-panel p-3 space-y-3">
         {e.sub === 'see' && (
           <div className="flex flex-wrap items-center gap-3">
@@ -520,6 +597,7 @@ export default function HoldemMarket({
           </div>
         )}
       </div>
+      )}
 
       {/* tape */}
       <div className="rounded-lg border border-steel bg-panel p-2">

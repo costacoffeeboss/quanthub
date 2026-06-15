@@ -1,5 +1,6 @@
 import { useEffect, useReducer, useRef, useState } from 'react';
 import { usePersistentState } from '../lib/storage';
+import ReflectionGate, { ReflectToggle, type ReflectSpec } from '../components/ReflectionGate';
 
 /**
  * Live market-making under adverse selection. You quote a two-way market in
@@ -118,6 +119,10 @@ interface Engine {
   tape: TapeRow[];
   armed: Control | null;
   nextId: number;
+  reflect: boolean;
+  reflectFairRef: number;
+  reflectHsRef: number;
+  lastReflectAt: number;
 }
 
 function buildBook(e: Engine, mid: number, M: number) {
@@ -131,7 +136,7 @@ function buildBook(e: Engine, mid: number, M: number) {
   }
 }
 
-function freshEngine(diff: Diff, durationMs: number): Engine {
+function freshEngine(diff: Diff, durationMs: number, reflect: boolean): Engine {
   const e: Engine = {
     cfg: CFG[diff], duration: durationMs, elapsed: 0,
     truePx: START_PRICE, prevTrue: START_PRICE, botAnchor: START_PRICE, bookNoise: 0,
@@ -142,6 +147,7 @@ function freshEngine(diff: Diff, durationMs: number): Engine {
     riskExp: 0, peakPos: 0, absErrSum: 0, absErrN: 0,
     fairHist: [START_PRICE], trueHist: [START_PRICE], tHist: [0],
     dots: [], tape: [], armed: null, nextId: 1,
+    reflect, reflectFairRef: START_PRICE, reflectHsRef: 0.3, lastReflectAt: 0,
   };
   buildBook(e, START_PRICE, CFG[diff].mBase + CFG[diff].mK * 0.3);
   return e;
@@ -469,17 +475,101 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
   );
 }
 
+// reflection: judging a notable fair move / spread change mid-run
+function buildAdverseReflection(e: Engine): ReflectSpec {
+  const pos = e.pos;
+  const fair = e.fair;
+  const prevFair = e.reflectFairRef;
+  const deltaFair = fair - prevFair;
+  const spread = 2 * e.hs;
+  const deltaHs = e.hs - e.reflectHsRef;
+  const vol = e.volLevel;
+  const bb = bestBotBidTick(e), ba = bestBotAskTick(e);
+  const bookMid = bb !== null && ba !== null ? px((bb + ba) / 2) : fair;
+
+  const fairTowardBook = Math.sign(deltaFair) === Math.sign(bookMid - prevFair) && Math.abs(bookMid - prevFair) > 0.2;
+  const raisedWhileLong = pos >= 3 && deltaFair > 0.2;
+  const loweredWhileShort = pos <= -3 && deltaFair < -0.2;
+  const wrongLean = raisedWhileLong || loweredWhileShort;
+  const leanCorrect = (pos >= 3 && deltaFair < -0.2) || (pos <= -3 && deltaFair > 0.2);
+  const fairOff = Math.abs(fair - bookMid) > Math.max(1, spread);
+  const widenVol = deltaHs > 0.05 && vol >= 0.5;
+  const tightenCalm = deltaHs < -0.05 && vol < 0.45;
+  const widenCalm = deltaHs > 0.05 && vol < 0.45;
+  const tightenStorm = deltaHs < -0.05 && vol >= 0.6;
+
+  const chips = [
+    { id: 'track', label: "The market moved — I'm tracking it with my fair", sound: fairTowardBook },
+    { id: 'lean', label: "I'm leaning fair to flatten my inventory", sound: leanCorrect },
+    { id: 'vol', label: 'Vol picked up, so I widened', sound: widenVol },
+    { id: 'calm', label: "It's calm, so I tightened to capture flow", sound: tightenCalm },
+  ];
+
+  let tier: ReflectSpec['verdict']['tier'];
+  let headline: string;
+  if (wrongLean && !fairTowardBook) { tier = 'mistake'; headline = `you moved fair ${deltaFair > 0 ? 'up while long' : 'down while short'} without the market backing it`; }
+  else if (fairOff) { tier = 'mixed'; headline = 'your fair has drifted off the market'; }
+  else if (widenCalm || tightenStorm) { tier = 'mixed'; headline = "your spread doesn't fit the regime"; }
+  else { tier = 'sound'; headline = 'fair and spread look reasonable'; }
+
+  const points: string[] = [];
+  points.push(
+    `You're ${pos > 0 ? 'long' : pos < 0 ? 'short' : 'flat'} ${Math.abs(pos)} and moved fair ${deltaFair >= 0 ? 'up' : 'down'} ${Math.abs(deltaFair).toFixed(1)}. ${
+      pos !== 0
+        ? `When ${pos > 0 ? 'long, leaning fair down' : 'short, leaning fair up'} bleeds the position back — ${leanCorrect ? 'which is what you did.' : wrongLean ? 'you leaned the other way, growing your risk unless the market truly moved.' : 'neutral here.'}`
+        : 'Flat, so this is about tracking value, not leaning.'
+    }`,
+  );
+  points.push(
+    `Book mid ≈ ${bookMid.toFixed(1)}, your fair ${fair.toFixed(1)}. ${fairOff ? 'Your fair is off the inside — informed flow will pick off the stale side.' : fairTowardBook ? 'Your fair is tracking the book.' : 'Keep fair anchored to the book and tape.'}`,
+  );
+  points.push(
+    `Spread ${spread.toFixed(1)} at vol ${vol.toFixed(2)}. ${
+      widenVol ? 'Widening into rising vol is right.' : tightenCalm ? 'Tightening in calm to win flow — good.' : widenCalm ? 'Widening in calm just cedes flow.' : tightenStorm ? 'Tightening into a storm invites adverse fills.' : 'Reasonable for the regime.'
+    }`,
+  );
+
+  return {
+    question: deltaHs > 0.05 || deltaHs < -0.05 ? 'Why did you change your spread?' : 'Why did you move your fair?',
+    facts: [
+      { label: 'Position', value: `${pos > 0 ? '+' : ''}${pos}` },
+      { label: 'Fair Δ', value: `${deltaFair >= 0 ? '+' : ''}${deltaFair.toFixed(1)}` },
+      { label: 'Fair/book', value: `${fair.toFixed(1)} / ${bookMid.toFixed(1)}` },
+      { label: 'Spread', value: `${spread.toFixed(1)} @ vol ${vol.toFixed(2)}` },
+    ],
+    chips,
+    verdict: { tier, headline, points },
+  };
+}
+
 export default function AdverseSelection() {
   const [best, setBest] = usePersistentState<number | null>('qh:hiscore:adverse', null);
+  const [reflect, setReflect] = usePersistentState<boolean>('qh:reflect', false);
+  const [pendingReflect, setPendingReflect] = useState<ReflectSpec | null>(null);
+  const [paused, setPaused] = useState(false);
+  const pausedRef = useRef(false);
   const [phase, setPhase] = useState<'idle' | 'play' | 'done'>('idle');
   const [diff, setDiff] = useState<Diff>('med');
   const [minutes, setMinutes] = useState(2);
   const eng = useRef<Engine | null>(null);
   const [, force] = useReducer((x) => x + 1, 0);
 
+  useEffect(() => { pausedRef.current = paused; }, [paused]);
+
+  // freeze the live sim while a reflection is open; trigger occasionally on a
+  // notable fair move or spread change.
+  function checkReflect(e: Engine) {
+    if (!e.reflect || pausedRef.current) return;
+    if (e.elapsed - e.lastReflectAt < 18000) return;
+    if (Math.abs(e.fair - e.reflectFairRef) < 0.6 && Math.abs(e.hs - e.reflectHsRef) < 0.3) return;
+    setPendingReflect(buildAdverseReflection(e));
+    setPaused(true);
+  }
+
   useEffect(() => {
     if (phase !== 'play') return;
     const id = setInterval(() => {
+      if (pausedRef.current) return;
       const e = eng.current; if (!e) return;
       step(e);
       if (e.elapsed >= e.duration) { finish(); return; }
@@ -492,16 +582,17 @@ export default function AdverseSelection() {
   useEffect(() => {
     if (phase !== 'play') return;
     const adjust = (dir: 1 | -1) => {
-      const e = eng.current; if (!e) return;
+      const e = eng.current; if (!e || pausedRef.current) return;
       const c = e.armed ?? 'fair';
       if (c === 'fair') e.fair = r1(e.fair + dir * TICK);
       else if (c === 'spread') e.hs = clamp(r1(e.hs + dir * TICK), TICK, 10);
       else if (c === 'size') { e.size = clamp(e.size + dir, 1, 50); e.bidRem = e.size; e.askRem = e.size; }
       resolveUserCross(e);
+      checkReflect(e);
       force();
     };
     const onDown = (ev: KeyboardEvent) => {
-      const e = eng.current; if (!e) return;
+      const e = eng.current; if (!e || pausedRef.current) return;
       const k = ev.key.toLowerCase();
       if (k === 'f' || k === 's' || k === 'q') { e.armed = k === 'f' ? 'fair' : k === 's' ? 'spread' : 'size'; ev.preventDefault(); force(); }
       else if (k === 'r') { e.bidRem = e.size; e.askRem = e.size; resolveUserCross(e); ev.preventDefault(); force(); }
@@ -519,7 +610,7 @@ export default function AdverseSelection() {
     return () => { window.removeEventListener('keydown', onDown); window.removeEventListener('keyup', onUp); };
   }, [phase]);
 
-  function start() { eng.current = freshEngine(diff, minutes * 60_000); setPhase('play'); }
+  function start() { eng.current = freshEngine(diff, minutes * 60_000, reflect); setPendingReflect(null); setPaused(false); setPhase('play'); }
   function finish() {
     const e = eng.current; if (!e) return;
     const finalPnl = e.cash + e.pos * e.truePx;
@@ -527,11 +618,11 @@ export default function AdverseSelection() {
     setPhase('done');
   }
   function nudge(c: Control, dir: 1 | -1) {
-    const e = eng.current; if (!e) return;
+    const e = eng.current; if (!e || pausedRef.current) return;
     if (c === 'fair') e.fair = r1(e.fair + dir * TICK);
     else if (c === 'spread') e.hs = clamp(r1(e.hs + dir * TICK), TICK, 10);
     else if (c === 'size') { e.size = clamp(e.size + dir, 1, 50); e.bidRem = e.size; e.askRem = e.size; }
-    resolveUserCross(e); force();
+    resolveUserCross(e); checkReflect(e); force();
   }
   function reload() { const e = eng.current; if (!e) return; e.bidRem = e.size; e.askRem = e.size; resolveUserCross(e); force(); }
 
@@ -571,6 +662,7 @@ export default function AdverseSelection() {
               <span className="font-mono text-[11px] text-muted">Length: <span className="text-violet-light">{minutes} min</span></span>
               <input type="range" min={1} max={5} value={minutes} onChange={(ev) => setMinutes(Number(ev.target.value))} className="w-full accent-[#6d4aff]" />
             </label>
+            <ReflectToggle on={reflect} onChange={setReflect} />
           </div>
           <button type="button" className={btnCls} onClick={start}>Start →</button>
         </div>
@@ -645,6 +737,18 @@ export default function AdverseSelection() {
         <span>P&amp;L <span className={livePnl >= 0 ? 'text-open' : 'text-closed'}>{livePnl >= 0 ? '+' : ''}{livePnl.toFixed(1)}</span> <span className="text-muted">@ your fair</span></span>
         <span>Best {best ?? '—'}</span>
       </div>
+
+      {pendingReflect && (
+        <ReflectionGate
+          spec={pendingReflect}
+          onContinue={() => {
+            const e2 = eng.current;
+            if (e2) { e2.reflectFairRef = e2.fair; e2.reflectHsRef = e2.hs; e2.lastReflectAt = e2.elapsed; }
+            setPendingReflect(null);
+            setPaused(false);
+          }}
+        />
+      )}
 
       <div className="flex flex-col lg:flex-row gap-3">
         <div className="flex-1 min-w-0 space-y-3">
