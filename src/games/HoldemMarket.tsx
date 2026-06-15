@@ -198,7 +198,20 @@ function freshEngine(diff: Diff): Engine {
   return e;
 }
 
-export default function HoldemMarket() {
+export interface HoldemSummary {
+  pnl: number;
+  rank: number;
+  total: number;
+  won: boolean;
+}
+
+export default function HoldemMarket({
+  embedded = false,
+  onComplete,
+}: {
+  embedded?: boolean;
+  onComplete?: (summary: HoldemSummary) => void;
+} = {}) {
   const [best, setBest] = usePersistentState<number | null>('qh:hiscore:holdem', null);
   const [phase, setPhase] = useState<'idle' | 'play' | 'settle'>('idle');
   const [diff, setDiff] = useState<Diff>('med');
@@ -386,7 +399,17 @@ export default function HoldemMarket() {
             <Stat label="Peak position" value={`${e.peakPos}`} hint="max |inventory|" />
           </div>
           <p className="text-sm text-muted leading-relaxed">{coach}</p>
-          <button type="button" className={btnCls} onClick={() => setPhase('idle')}>New hand</button>
+          {embedded ? (
+            <button
+              type="button"
+              className={btnCls}
+              onClick={() => onComplete?.({ pnl: my, rank: youRank, total, won: youRank === 1 })}
+            >
+              Submit to interviewer →
+            </button>
+          ) : (
+            <button type="button" className={btnCls} onClick={() => setPhase('idle')}>New hand</button>
+          )}
         </div>
       </div>
     );

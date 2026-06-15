@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { allQuestions, type Question } from '../data/questionBank';
 import { usePersistentState } from '../lib/storage';
-import MarketMaker, { type MarketMakerSummary } from '../games/MarketMaker';
+import HoldemMarket, { type HoldemSummary } from '../games/HoldemMarket';
 import {
   gradeWithApi,
   gradeWithEngine,
@@ -121,6 +121,13 @@ function pickSlots(): Slot[] {
   ];
 }
 
+interface GameResult {
+  pnl: number;
+  rank: number;
+  total: number; // settled sum
+  quality: number; // 0..1, used for the market-making dimension
+}
+
 function combineProbes(slot: Slot): string {
   return PROBES.map((p) => `${p.label}: ${slot.probes[p.key]?.trim() || '(blank)'}`).join('\n\n');
 }
@@ -134,7 +141,7 @@ export default function Mock() {
   const [settings, setSettings] = usePersistentState<GradingSettings>('qh:grading-settings', defaultSettings);
 
   const [slots, setSlots] = useState<Slot[]>([]);
-  const [game, setGame] = useState<MarketMakerSummary | null>(null);
+  const [game, setGame] = useState<GameResult | null>(null);
   const [stage, setStage] = useState(0); // 0..3
   const [probeStep, setProbeStep] = useState(0); // 0..3 within a teaser
   const [cur, setCur] = useState('');
@@ -215,8 +222,10 @@ export default function Mock() {
     setProbeStep((p) => p - 1);
   }
 
-  function onGameDone(summary: MarketMakerSummary) {
-    setGame(summary);
+  function onGameDone(s: HoldemSummary) {
+    const rankScore = (4 - s.rank) / 3; // rank 1 → 1, rank 4 → 0
+    const quality = clamp(0.7 * rankScore + (s.pnl >= 0 ? 0.3 : 0), 0, 1);
+    setGame({ pnl: s.pnl, rank: s.rank, total: s.total, quality });
     setStage(3);
     setProbeStep(0);
   }
@@ -450,12 +459,13 @@ export default function Mock() {
 
         {stage === 2 ? (
           <article className="rounded-lg border border-steel bg-panel p-5 space-y-3">
-            <h2 className="font-semibold">Market-making round</h2>
+            <h2 className="font-semibold">Market-making round — Hold&apos;em</h2>
             <p className="text-sm text-muted">
-              The interviewer wants to see you quote two-sided markets and manage the spread. Make
-              your markets — when you&apos;re done, submit the round to continue.
+              Now the interviewer wants to watch you trade. Make two-sided markets against three bots
+              over four streets, manage your inventory, and settle to the true sum. Play the hand out
+              — when it settles, submit the round to continue.
             </p>
-            <MarketMaker embedded onComplete={onGameDone} />
+            <HoldemMarket embedded onComplete={onGameDone} />
           </article>
         ) : (
           (() => {
@@ -566,7 +576,7 @@ function Report({
   onRestart,
 }: {
   slots: Slot[];
-  game: MarketMakerSummary | null;
+  game: GameResult | null;
   selfMode: boolean;
   gradeError: string;
   setSelfScore: (i: number, s: number) => void;
@@ -591,15 +601,14 @@ function Report({
   });
   const communication = Math.round((commPer.reduce((a, b) => a + b, 0) / Math.max(1, slots.length)) * 100);
 
-  const hitRate = game ? game.hits / game.rounds : 0;
-  const pnlNorm = game ? clamp(game.total / (game.rounds * 80), 0, 1) : 0;
-  const mmEv = Math.round((0.5 * hitRate + 0.5 * pnlNorm) * 100);
+  const gameQ = game ? game.quality : 0;
+  const mmEv = Math.round(gameQ * 100);
 
   const finalsAnswered = slots.filter((s) => (s.probes.final?.trim().length ?? 0) > 0).length / Math.max(1, slots.length);
   const completion =
     slots.reduce((a, s) => a + PROBES.filter((p) => (s.probes[p.key]?.trim().length ?? 0) > 0).length / 4, 0) /
     Math.max(1, slots.length);
-  const composure = Math.round((completion * 0.4 + finalsAnswered * 0.3 + hitRate * 0.3) * 100);
+  const composure = Math.round((completion * 0.4 + finalsAnswered * 0.3 + gameQ * 0.3) * 100);
 
   const overall = Math.round(0.4 * problemSolving + 0.25 * communication + 0.25 * mmEv + 0.1 * composure);
 
@@ -617,7 +626,7 @@ function Report({
   const dims: Dimension[] = [
     { label: 'Problem-solving & rigour', pct: problemSolving, note: 'Correctness and soundness of method across the three brainteasers.' },
     { label: 'Communication & structure', pct: communication, note: 'How fully you narrated initial thoughts, approach and working — not just the answer.' },
-    { label: 'Market-making & EV', pct: mmEv, note: `Quoting round: ${game ? `${game.hits}/${game.rounds} markets contained the value, P&L ${game.total >= 0 ? '+' : ''}${game.total}` : '—'}.` },
+    { label: 'Market-making & EV', pct: mmEv, note: `Hold'em round: ${game ? `finished rank ${game.rank}/4, P&L ${game.pnl >= 0 ? '+' : ''}${Math.round(game.pnl)}` : '—'}.` },
     { label: 'Composure & completeness', pct: composure, note: 'Did you finish every part and commit to final answers under time.' },
   ];
 
@@ -755,19 +764,19 @@ function Report({
         {game && (
           <article className="rounded-lg border border-steel bg-panel p-5 space-y-2">
             <div className="flex items-center gap-2">
-              <h3 className="font-semibold mr-auto">Market-making round</h3>
+              <h3 className="font-semibold mr-auto">Market-making round — Hold&apos;em</h3>
               <span className={`font-mono text-xs ${mmEv >= 70 ? 'text-open' : mmEv >= 50 ? 'text-soon' : 'text-closed'}`}>{mmEv}%</span>
             </div>
             <p className="font-mono text-sm">
-              {game.hits}/{game.rounds} markets contained the value · P&amp;L{' '}
-              <span className={game.total >= 0 ? 'text-open' : 'text-closed'}>{game.total >= 0 ? '+' : ''}{game.total}</span>
+              Finished rank <span className="text-violet-light">{game.rank}/4</span> · settled {game.total} · P&amp;L{' '}
+              <span className={game.pnl >= 0 ? 'text-open' : 'text-closed'}>{game.pnl >= 0 ? '+' : ''}{Math.round(game.pnl)}</span>
             </p>
             <p className="text-sm text-muted">
-              {hitRate >= 0.8
-                ? 'Strong: you contained nearly every market. Keep tightening spreads where you were confident.'
-                : hitRate >= 0.5
-                ? 'Decent hit-rate. The edge now is calibrating width — tighter when sure, wider on genuine uncertainty.'
-                : 'You got picked off too often. Widen on unfamiliar quantities and anchor your fair before quoting.'}
+              {game.rank === 1
+                ? 'Won the table — you read the conditional value better than the bots and traded the right way into settlement.'
+                : game.pnl >= 0
+                ? 'Green, but not the sharpest seat. Tighten your fair as the board fills in and lean on bots whose markets drift from value.'
+                : 'Underwater — likely quoted the wrong side of the true sum or carried a position into a bad river. Trust your conditional EV.'}
             </p>
           </article>
         )}
