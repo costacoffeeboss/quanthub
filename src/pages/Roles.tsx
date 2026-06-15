@@ -1,4 +1,5 @@
 import { roles, firmComparison, sideComparison } from '../data/roles';
+import RoleQuiz from '../components/RoleQuiz';
 
 export default function Roles() {
   return (
@@ -12,9 +13,11 @@ export default function Roles() {
         </p>
       </header>
 
+      <RoleQuiz />
+
       <div className="space-y-6">
         {roles.map((r) => (
-          <article key={r.slug} id={r.slug} className="rounded-lg border border-steel bg-panel p-6">
+          <article key={r.slug} id={r.slug} className="rounded-lg border border-steel bg-panel p-6 scroll-mt-20">
             <header className="flex flex-wrap items-baseline gap-x-3">
               <h2 className="text-xl font-semibold text-violet-light">{r.title}</h2>
               <p className="text-sm text-muted">{r.tagline}</p>
