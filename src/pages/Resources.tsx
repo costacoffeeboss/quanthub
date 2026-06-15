@@ -14,7 +14,7 @@ const stages = [
     title: 'Get ready to fire',
     items: [
       'Finalise a one-page CV now, not in October (tips below).',
-      'Build your target list with the Trackr: pick 10–20 firms across tiers, note their typical windows.',
+      'Build your target list with the Tracker: pick 10–20 firms across tiers, note their typical windows.',
       'Start a brainteaser habit: a few questions a week from the Questions tab, done properly on paper before peeking.',
       'Read one interview prep book cover to cover (see books below) — slowly, solving before reading solutions.',
     ],
@@ -25,7 +25,7 @@ const stages = [
     items: [
       'Most quant firms review on a rolling basis: the same application is strictly stronger in week 1 than week 8, because seats fill.',
       'Apply to firms in waves: a couple of warm-ups first, your top choices once you have had one or two real processes.',
-      'Keep a record of every application in the Trackr — by December you will not remember what you sent where.',
+      'Keep a record of every application in the Tracker — by December you will not remember what you sent where.',
       'Do not over-tailor cover letters for prop shops; most do not read them. Banks care more.',
     ],
   },

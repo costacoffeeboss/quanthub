@@ -12,9 +12,9 @@ const sections = [
   },
   {
     to: '/trackr',
-    title: 'Trackr',
-    blurb: '27 UK-relevant quant programmes with typical opening windows and your own application pipeline.',
-    label: 'TRACKR',
+    title: 'Tracker',
+    blurb: 'Quant internships and graduate programmes with typical opening windows and your own application pipeline.',
+    label: 'TRACKER',
   },
   {
     to: '/firms',
@@ -61,21 +61,21 @@ export default function Home() {
       <section className="-mx-4 -mt-8">
         <div className="bg-gradient-to-b from-plum/60 via-plum/20 to-transparent px-4 pt-14 pb-10 text-center">
           <p className="font-mono text-xs uppercase tracking-[0.3em] text-violet-light mb-4">
-            Free · independent · UK-focused
+            Free · independent · built by people who&apos;ve done it
           </p>
           <h1 className="text-3xl sm:text-5xl font-bold tracking-tight">
             Everything you need to <span className="wordmark">break into quant</span>
           </h1>
           <p className="mt-4 text-muted max-w-xl mx-auto">
-            Roles, openings, interview prep, and trading games — built for UK students and
-            graduates targeting quant finance.
+            Roles, openings, interview prep, and trading games — built by people who&apos;ve been
+            through quant recruiting, for the people about to.
           </p>
           <div className="mt-6 flex flex-wrap justify-center gap-3">
             <Link
               to="/trackr"
               className="font-mono text-sm px-5 py-2.5 rounded bg-violet text-white hover:bg-violet-light hover:text-bg transition-colors"
             >
-              Open the Trackr →
+              Open your Tracker →
             </Link>
             <Link
               to="/games"
