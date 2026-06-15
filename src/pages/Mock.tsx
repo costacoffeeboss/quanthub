@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { allQuestions, CATEGORIES, type Category, type Question } from '../data/questionBank';
+import { Link } from 'react-router-dom';
+import { allQuestions, type Question } from '../data/questionBank';
 import { usePersistentState } from '../lib/storage';
+import MarketMaker, { type MarketMakerSummary } from '../games/MarketMaker';
 import {
   gradeWithApi,
   gradeWithEngine,
@@ -16,13 +18,45 @@ import {
   type Grade,
 } from '../lib/grading';
 
-type Phase = 'config' | 'running' | 'grading' | 'report';
+type Phase = 'config' | 'interview' | 'grading' | 'report';
 type Backend = 'self' | 'webllm' | 'api';
 
-interface Result {
+/** The staged follow-ups the interviewer walks the candidate through per teaser. */
+const PROBES = [
+  {
+    key: 'initial',
+    label: 'Initial thoughts',
+    ask: 'First reactions — what is your gut read, and what makes this one tricky?',
+    placeholder: 'Think out loud: what kind of problem is this, what jumps out, where might it trap people…',
+  },
+  {
+    key: 'approach',
+    label: 'Your approach',
+    ask: 'Which approach or route will you take — and why that one over the alternatives?',
+    placeholder: 'Name the method (casework, symmetry, Bayes, a recurrence, linearity of expectation…) and justify it.',
+  },
+  {
+    key: 'work',
+    label: 'Working',
+    ask: 'Walk me through it, step by step.',
+    placeholder: 'Show the actual steps and arithmetic…',
+  },
+  {
+    key: 'final',
+    label: 'Final answer',
+    ask: 'Your final answer — and a quick sanity check on it.',
+    placeholder: 'State the answer cleanly, then sanity-check the magnitude / edge cases.',
+  },
+] as const;
+
+type ProbeKey = (typeof PROBES)[number]['key'];
+
+interface Slot {
   q: Question;
-  answer: string;
-  grade?: Grade;
+  role: 'Warm-up 1' | 'Warm-up 2' | 'Final question';
+  probes: Partial<Record<ProbeKey, string>>;
+  grade?: Grade; // LLM grade
+  selfScore?: number; // self-grade
 }
 
 interface GradingSettings {
@@ -46,7 +80,7 @@ const defaultSettings: GradingSettings = {
 const btnCls =
   'font-mono text-sm px-5 py-2.5 rounded bg-violet text-white hover:bg-violet-light hover:text-bg transition-colors disabled:opacity-40 disabled:cursor-not-allowed';
 const btn2Cls =
-  'font-mono text-sm px-4 py-2 rounded border border-violet/60 text-violet-light hover:bg-violet/15 transition-colors';
+  'font-mono text-sm px-4 py-2 rounded border border-violet/60 text-violet-light hover:bg-violet/15 transition-colors disabled:opacity-40 disabled:cursor-not-allowed';
 const inputCls = 'bg-bg border border-steel rounded px-3 py-2 font-mono text-sm';
 
 function shuffle<T>(arr: T[]): T[] {
@@ -57,38 +91,66 @@ function shuffle<T>(arr: T[]): T[] {
   }
   return a;
 }
+const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x));
+
+/** Pick two distinct-category warm-ups (not Hard) and one harder final, avoiding the MM/mental-math banks. */
+function pickSlots(): Slot[] {
+  const pool = allQuestions.filter(
+    (q) => q.category !== 'Market making' && q.category !== 'Mental math',
+  );
+  const shuffled = shuffle(pool);
+  const warmups: Question[] = [];
+  for (const q of shuffled) {
+    if (warmups.length >= 2) break;
+    if (q.difficulty === 'Hard') continue;
+    if (warmups.some((w) => w.category === q.category)) continue;
+    warmups.push(q);
+  }
+  while (warmups.length < 2) {
+    const q = shuffled.find((x) => !warmups.includes(x) && x.difficulty !== 'Hard');
+    if (!q) break;
+    warmups.push(q);
+  }
+  const final =
+    shuffled.find((q) => q.difficulty !== 'Easy' && !warmups.includes(q)) ??
+    shuffled.find((q) => !warmups.includes(q))!;
+  return [
+    { q: warmups[0], role: 'Warm-up 1', probes: {} },
+    { q: warmups[1], role: 'Warm-up 2', probes: {} },
+    { q: final, role: 'Final question', probes: {} },
+  ];
+}
+
+function combineProbes(slot: Slot): string {
+  return PROBES.map((p) => `${p.label}: ${slot.probes[p.key]?.trim() || '(blank)'}`).join('\n\n');
+}
+const getScore = (s: Slot): number | undefined => s.grade?.score ?? s.selfScore;
+
+// stageIdx 0,1 → warm-up slots; 2 → game; 3 → final slot
+const slotIdxForStage = (stage: number) => (stage === 3 ? 2 : stage);
 
 export default function Mock() {
   const [phase, setPhase] = useState<Phase>('config');
-
-  // config
-  const [count, setCount] = useState(5);
-  const [cat, setCat] = useState<Category | 'Mixed'>('Mixed');
-  const [minutes, setMinutes] = useState(15);
   const [settings, setSettings] = usePersistentState<GradingSettings>('qh:grading-settings', defaultSettings);
 
-  // run
-  const [results, setResults] = useState<Result[]>([]);
-  const [idx, setIdx] = useState(0);
-  const [answer, setAnswer] = useState('');
-  const [timeLeft, setTimeLeft] = useState(0);
+  const [slots, setSlots] = useState<Slot[]>([]);
+  const [game, setGame] = useState<MarketMakerSummary | null>(null);
+  const [stage, setStage] = useState(0); // 0..3
+  const [probeStep, setProbeStep] = useState(0); // 0..3 within a teaser
+  const [cur, setCur] = useState('');
+  const [elapsed, setElapsed] = useState(0);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
-  // grading
   const [gradeProgress, setGradeProgress] = useState(0);
   const [loadStatus, setLoadStatus] = useState('');
   const [gradeError, setGradeError] = useState('');
   const [selfMode, setSelfMode] = useState(false);
-
   const [bestScore, setBestScore] = usePersistentState<number | null>('qh:hiscore:mock', null);
 
   const [caps, setCaps] = useState<GpuCaps>({ available: false, f16: false });
   const set = (patch: Partial<GradingSettings>) => setSettings((s) => ({ ...s, ...patch }));
-
-  // models this GPU can actually run (f16 models need the shader-f16 feature)
   const availableModels = WEBLLM_MODELS.filter((m) => caps.f16 || !m.f16);
 
-  // detect WebGPU capabilities once; keep the selected model to one that will run
   useEffect(() => {
     let cancelled = false;
     gpuCapabilities().then((c) => {
@@ -103,51 +165,63 @@ export default function Mock() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // total timer
+  // count-up timer (soft — informational only)
   useEffect(() => {
-    if (phase !== 'running') return;
-    const t = window.setInterval(() => {
-      setTimeLeft((s) => {
-        if (s <= 1) {
-          window.clearInterval(t);
-          finishRun();
-          return 0;
-        }
-        return s - 1;
-      });
-    }, 1000);
+    if (phase !== 'interview') return;
+    const t = window.setInterval(() => setElapsed((e) => e + 1), 1000);
     return () => window.clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
 
-  function start() {
-    const pool = cat === 'Mixed' ? allQuestions : allQuestions.filter((q) => q.category === cat);
-    const picked = shuffle(pool).slice(0, Math.min(count, pool.length));
-    setResults(picked.map((q) => ({ q, answer: '' })));
-    setIdx(0);
-    setAnswer('');
-    setTimeLeft(minutes * 60);
+  // load the active probe's saved text whenever we move within/between teasers
+  useEffect(() => {
+    if (phase !== 'interview' || stage === 2) return;
+    const slot = slots[slotIdxForStage(stage)];
+    setCur(slot?.probes[PROBES[probeStep].key] ?? '');
+    setTimeout(() => taRef.current?.focus(), 0);
+  }, [phase, stage, probeStep, slots]);
+
+  function begin() {
+    setSlots(pickSlots());
+    setGame(null);
+    setStage(0);
+    setProbeStep(0);
+    setCur('');
+    setElapsed(0);
     setGradeError('');
-    setPhase('running');
-    setTimeout(() => taRef.current?.focus(), 0);
+    setPhase('interview');
   }
 
-  function go(to: number) {
-    setResults((rs) => rs.map((r, i) => (i === idx ? { ...r, answer } : r)));
-    setIdx(to);
-    setAnswer(results[to]?.answer ?? '');
-    setTimeout(() => taRef.current?.focus(), 0);
+  function saveCur(): Slot[] {
+    const si = slotIdxForStage(stage);
+    const key = PROBES[probeStep].key;
+    const next = slots.map((s, i) => (i === si ? { ...s, probes: { ...s.probes, [key]: cur } } : s));
+    setSlots(next);
+    return next;
   }
 
-  function finishRun() {
-    setResults((rs) => {
-      const updated = rs.map((r, i) => (i === idx ? { ...r, answer } : r));
-      void runGrading(updated);
-      return updated;
-    });
+  function probeForward() {
+    saveCur();
+    if (probeStep < PROBES.length - 1) {
+      setProbeStep((p) => p + 1);
+    } else {
+      // teaser done → advance stage
+      setProbeStep(0);
+      setStage((s) => s + 1);
+    }
+  }
+  function probeBack() {
+    if (probeStep === 0) return;
+    saveCur();
+    setProbeStep((p) => p - 1);
   }
 
-  async function runGrading(toGrade: Result[]) {
+  function onGameDone(summary: MarketMakerSummary) {
+    setGame(summary);
+    setStage(3);
+    setProbeStep(0);
+  }
+
+  async function runGrading(finalSlots: Slot[]) {
     if (settings.backend === 'self' || (settings.backend === 'webllm' && !caps.available)) {
       setSelfMode(true);
       setPhase('report');
@@ -158,67 +232,66 @@ export default function Mock() {
     setGradeProgress(0);
     setGradeError('');
     setLoadStatus('');
-
     try {
-      let grade: (inp: Result) => Promise<Grade>;
+      let grade: (s: Slot) => Promise<Grade>;
       if (settings.backend === 'webllm') {
         setLoadStatus('Preparing model… the first run downloads weights (cached afterwards).');
         const engine = await loadEngine(settings.webllmModel, (p) =>
           setLoadStatus(p.text || `Loading model… ${Math.round(p.progress * 100)}%`),
         );
         setLoadStatus('');
-        grade = (r) =>
+        grade = (s) =>
           gradeWithEngine(engine, {
-            question: r.q.prompt,
-            referenceAnswer: r.q.answer,
-            referenceSolution: r.q.solution.join('\n\n'),
-            candidateAnswer: r.answer,
+            question: s.q.prompt,
+            referenceAnswer: s.q.answer,
+            referenceSolution: s.q.solution.join('\n\n'),
+            candidateAnswer: combineProbes(s),
           });
       } else {
-        grade = (r) =>
+        grade = (s) =>
           gradeWithApi(
             { provider: settings.apiProvider, baseUrl: settings.apiBaseUrl, model: settings.apiModel, key: settings.apiKey },
             {
-              question: r.q.prompt,
-              referenceAnswer: r.q.answer,
-              referenceSolution: r.q.solution.join('\n\n'),
-              candidateAnswer: r.answer,
+              question: s.q.prompt,
+              referenceAnswer: s.q.answer,
+              referenceSolution: s.q.solution.join('\n\n'),
+              candidateAnswer: combineProbes(s),
             },
           );
       }
-
-      const graded: Result[] = [];
-      for (let i = 0; i < toGrade.length; i++) {
-        const g = await grade(toGrade[i]);
-        graded.push({ ...toGrade[i], grade: g });
+      const graded: Slot[] = [];
+      for (let i = 0; i < finalSlots.length; i++) {
+        const g = await grade(finalSlots[i]);
+        graded.push({ ...finalSlots[i], grade: g });
         setGradeProgress(i + 1);
       }
-      setResults(graded);
-      const total = graded.reduce((a, r) => a + (r.grade?.score ?? 0), 0);
-      const pct = Math.round((total / (graded.length * 5)) * 100);
-      setBestScore((b) => (b === null || pct > b ? pct : b));
+      setSlots(graded);
       setPhase('report');
     } catch (e) {
       const raw = e instanceof Error ? e.message : 'Grading failed.';
-      const msg =
+      setGradeError(
         settings.backend === 'webllm' && isShaderError(raw)
-          ? `Your GPU couldn't compile this model (${raw}). Try a "compatible" (f32) model in the list, a smaller one, or a key/self-grade.`
-          : raw;
-      setGradeError(msg);
+          ? `Your GPU couldn't compile this model (${raw}). Try a "compatible" (f32) model, a smaller one, or self-grade.`
+          : raw,
+      );
       setSelfMode(true);
-      setResults(toGrade);
       setPhase('report');
     }
   }
 
-  function setSelfScore(id: string, score: number) {
-    setResults((rs) => rs.map((r) => (r.q.id === id ? { ...r, grade: { score, verdict: 'Self-assessed', feedback: '' } } : r)));
+  function finishInterview() {
+    const finalSlots = saveCur();
+    void runGrading(finalSlots);
   }
 
-  const mm = Math.floor(timeLeft / 60);
-  const ss = String(timeLeft % 60).padStart(2, '0');
+  function setSelfScore(i: number, score: number) {
+    setSlots((ss) => ss.map((s, j) => (j === i ? { ...s, selfScore: score } : s)));
+  }
 
-  // ---------- config ----------
+  const mm = Math.floor(elapsed / 60);
+  const ss = String(elapsed % 60).padStart(2, '0');
+
+  // ───────────────────────── config ─────────────────────────
   if (phase === 'config') {
     const webllmDisabled = !caps.available;
     return (
@@ -226,50 +299,45 @@ export default function Mock() {
         <header>
           <h1 className="text-2xl font-bold">Mock Interview</h1>
           <p className="mt-2 text-muted text-sm">
-            A timed gauntlet of brainteasers. Type your reasoning as you would speak it, then get
-            graded. Choose how: a free model that runs in your browser, your own API key, or
-            self-grade against the worked solutions.
+            A structured quant interview, the way the real thing runs: two warm-up brainteasers where
+            the interviewer pushes you on your <em>thinking</em> — not just the answer — then a live
+            market-making round, then a tougher closer. At the end you get a hire verdict, scores
+            across four dimensions, and specific feedback on what to drill next.
           </p>
-          {bestScore !== null && <p className="mt-1 font-mono text-xs text-muted">Best graded score: {bestScore}%</p>}
+          {bestScore !== null && <p className="mt-1 font-mono text-xs text-muted">Best overall: {bestScore}%</p>}
         </header>
 
-        <section className="rounded-lg border border-steel bg-panel p-5 space-y-4">
-          <div className="grid gap-4 sm:grid-cols-3">
-            <label className="block">
-              <span className="font-mono text-xs text-muted">Questions</span>
-              <select className={`${inputCls} mt-1 w-full`} value={count} onChange={(e) => setCount(Number(e.target.value))}>
-                {[3, 5, 8, 10].map((n) => <option key={n} value={n}>{n}</option>)}
-              </select>
-            </label>
-            <label className="block">
-              <span className="font-mono text-xs text-muted">Category</span>
-              <select className={`${inputCls} mt-1 w-full`} value={cat} onChange={(e) => setCat(e.target.value as Category | 'Mixed')}>
-                <option>Mixed</option>
-                {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
-              </select>
-            </label>
-            <label className="block">
-              <span className="font-mono text-xs text-muted">Time (minutes)</span>
-              <select className={`${inputCls} mt-1 w-full`} value={minutes} onChange={(e) => setMinutes(Number(e.target.value))}>
-                {[5, 10, 15, 20, 30].map((n) => <option key={n} value={n}>{n}</option>)}
-              </select>
-            </label>
-          </div>
-          <button type="button" className={btnCls} onClick={start}>Begin interview →</button>
+        <section className="rounded-lg border border-steel bg-panel p-5 space-y-3">
+          <h2 className="font-mono text-xs uppercase tracking-wider text-muted">The format</h2>
+          <ol className="space-y-2 text-sm">
+            {[
+              ['1', 'Warm-up brainteaser', 'Staged follow-ups: initial thoughts → approach → working → final answer.'],
+              ['2', 'Warm-up brainteaser', 'A second one, different topic — same probing.'],
+              ['3', 'Market-making round', 'Quote two-sided markets under fire. P&L and hit-rate count.'],
+              ['4', 'Final brainteaser', 'A harder closer to finish on.'],
+              ['★', 'Verdict & feedback', 'Hire tier, four dimension scores, and what to work on.'],
+            ].map(([n, t, d]) => (
+              <li key={t} className="flex gap-3">
+                <span className="font-mono text-violet-light shrink-0 w-5">{n}</span>
+                <span>
+                  <span className="font-semibold">{t}.</span> <span className="text-muted">{d}</span>
+                </span>
+              </li>
+            ))}
+          </ol>
+          <button type="button" className={btnCls} onClick={begin}>Begin interview →</button>
         </section>
 
         <section className="rounded-lg border border-steel bg-panel p-5 space-y-4">
-          <h2 className="font-mono text-xs uppercase tracking-wider text-muted">How to grade</h2>
-
+          <h2 className="font-mono text-xs uppercase tracking-wider text-muted">How to grade your brainteasers</h2>
           <div className="space-y-2">
-            {/* WebLLM */}
             <label className={`flex gap-3 items-start cursor-pointer rounded border p-3 ${settings.backend === 'webllm' ? 'border-violet bg-violet/5' : 'border-steel'} ${webllmDisabled ? 'opacity-60' : ''}`}>
               <input type="radio" name="backend" className="mt-1 accent-[#6d4aff]" disabled={webllmDisabled} checked={settings.backend === 'webllm'} onChange={() => set({ backend: 'webllm' })} />
               <span className="text-sm">
                 <span className="font-semibold">Free — in-browser model</span> <span className="font-mono text-[11px] text-open">no key</span>
                 <span className="block text-muted text-xs mt-0.5">
                   Runs an open model on your device via WebGPU. First run downloads weights (~1–2 GB, then cached). No key, no server, fully private.
-                  {webllmDisabled && <span className="text-soon"> Your browser lacks WebGPU — use Chrome/Edge on desktop, or pick another option. Self-grade is used as fallback.</span>}
+                  {webllmDisabled && <span className="text-soon"> Your browser lacks WebGPU — self-grade is used as fallback.</span>}
                 </span>
               </span>
             </label>
@@ -281,21 +349,15 @@ export default function Mock() {
                     {availableModels.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
                   </select>
                 </label>
-                {!caps.f16 && (
-                  <p className="font-mono text-[10px] text-soon">
-                    Your GPU doesn&apos;t support half-precision (f16) shaders, so only full-precision (f32) models are shown — they&apos;re a bit larger but run reliably here.
-                  </p>
-                )}
               </div>
             )}
 
-            {/* API key */}
             <label className={`flex gap-3 items-start cursor-pointer rounded border p-3 ${settings.backend === 'api' ? 'border-violet bg-violet/5' : 'border-steel'}`}>
               <input type="radio" name="backend" className="mt-1 accent-[#6d4aff]" checked={settings.backend === 'api'} onChange={() => set({ backend: 'api' })} />
               <span className="text-sm">
                 <span className="font-semibold">Your own API key</span> <span className="font-mono text-[11px] text-violet-light">best quality</span>
                 <span className="block text-muted text-xs mt-0.5">
-                  Anthropic, or any OpenAI-compatible provider (OpenRouter has free models, Groq, OpenAI, local Ollama). Key is stored only in this browser and sent directly to the provider.
+                  Anthropic, or any OpenAI-compatible provider. Key is stored only in this browser and sent directly to the provider.
                 </span>
               </span>
             </label>
@@ -313,7 +375,6 @@ export default function Mock() {
                     </button>
                   ))}
                 </div>
-
                 {settings.apiProvider === 'anthropic' ? (
                   <label className="block">
                     <span className="font-mono text-[11px] text-muted">Model</span>
@@ -346,23 +407,18 @@ export default function Mock() {
                     </label>
                   </>
                 )}
-
                 <label className="block">
-                  <span className="font-mono text-[11px] text-muted">API key {settings.apiBaseUrl.includes('localhost') && settings.apiProvider === 'openai' ? '(optional for local)' : ''}</span>
+                  <span className="font-mono text-[11px] text-muted">API key</span>
                   <input type="password" className={`${inputCls} mt-1 w-full`} placeholder="sk-…" value={settings.apiKey} onChange={(e) => set({ apiKey: e.target.value })} />
                 </label>
-                <p className="font-mono text-[10px] text-muted">
-                  Note: some providers block direct browser calls (CORS). OpenRouter, Groq, Anthropic, and local Ollama work; OpenAI may not.
-                </p>
               </div>
             )}
 
-            {/* Self */}
             <label className={`flex gap-3 items-start cursor-pointer rounded border p-3 ${settings.backend === 'self' ? 'border-violet bg-violet/5' : 'border-steel'}`}>
               <input type="radio" name="backend" className="mt-1 accent-[#6d4aff]" checked={settings.backend === 'self'} onChange={() => set({ backend: 'self' })} />
               <span className="text-sm">
                 <span className="font-semibold">Self-grade</span> <span className="font-mono text-[11px] text-muted">instant, any device</span>
-                <span className="block text-muted text-xs mt-0.5">No model. You score each answer 0–5 against the worked solution. Always available.</span>
+                <span className="block text-muted text-xs mt-0.5">No model. You score each brainteaser 0–5 against the worked solution; the verdict and dimensions are computed from that plus your market-making round.</span>
               </span>
             </label>
           </div>
@@ -371,46 +427,94 @@ export default function Mock() {
     );
   }
 
-  // ---------- running ----------
-  if (phase === 'running') {
-    const r = results[idx];
+  // ───────────────────────── interview ─────────────────────────
+  if (phase === 'interview') {
+    const stageLabels = ['Warm-up 1', 'Warm-up 2', 'Market making', 'Final question'];
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between font-mono text-xs">
-          <span className="text-muted">Question {idx + 1} / {results.length}</span>
-          <span className={timeLeft <= 30 ? 'text-closed' : 'text-soon'} aria-live="polite">{mm}:{ss}</span>
-        </div>
-        <article className="rounded-lg border border-steel bg-panel p-5 space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-[11px] text-muted border border-steel rounded px-2 py-0.5">{r.q.category}</span>
-            <span className="font-mono text-[11px] text-muted border border-steel rounded px-2 py-0.5">{r.q.difficulty}</span>
-            {r.q.firms && r.q.firms.length > 0 && <span className="font-mono text-[10px] text-violet-light">{r.q.firms.join(', ')}</span>}
+          <div className="flex flex-wrap gap-1.5">
+            {stageLabels.map((l, i) => (
+              <span
+                key={l}
+                className={`rounded px-2 py-0.5 border ${
+                  i === stage ? 'border-violet text-violet-light' : i < stage ? 'border-steel text-muted' : 'border-steel/40 text-muted/40'
+                }`}
+              >
+                {i < stage ? '✓ ' : ''}{l}
+              </span>
+            ))}
           </div>
-          <p className="text-sm leading-relaxed">{r.q.prompt}</p>
-          <textarea
-            ref={taRef}
-            className={`${inputCls} w-full min-h-[160px] leading-relaxed`}
-            placeholder="Talk through your reasoning — method, steps, and final answer…"
-            value={answer}
-            onChange={(e) => setAnswer(e.target.value)}
-          />
-        </article>
-        <div className="flex flex-wrap items-center gap-2">
-          <button type="button" className={btn2Cls} disabled={idx === 0} onClick={() => go(idx - 1)}>← Previous</button>
-          {idx < results.length - 1 ? (
-            <button type="button" className={btnCls} onClick={() => go(idx + 1)}>Next →</button>
-          ) : (
-            <button type="button" className={btnCls} onClick={finishRun}>Finish &amp; grade</button>
-          )}
-          <span className="ml-auto font-mono text-[11px] text-muted">
-            {results.filter((x, i) => (i === idx ? answer.trim() : x.answer.trim())).length}/{results.length} answered
-          </span>
+          <span className="text-muted" aria-live="off">⏱ {mm}:{ss}</span>
         </div>
+
+        {stage === 2 ? (
+          <article className="rounded-lg border border-steel bg-panel p-5 space-y-3">
+            <h2 className="font-semibold">Market-making round</h2>
+            <p className="text-sm text-muted">
+              The interviewer wants to see you quote two-sided markets and manage the spread. Make
+              your markets — when you&apos;re done, submit the round to continue.
+            </p>
+            <MarketMaker embedded onComplete={onGameDone} />
+          </article>
+        ) : (
+          (() => {
+            const slot = slots[slotIdxForStage(stage)];
+            return (
+              <>
+                <article className="rounded-lg border border-steel bg-panel p-5 space-y-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-[11px] text-violet-light">{slot.role}</span>
+                    <span className="font-mono text-[11px] text-muted border border-steel rounded px-2 py-0.5">{slot.q.category}</span>
+                    <span className="font-mono text-[11px] text-muted border border-steel rounded px-2 py-0.5">{slot.q.difficulty}</span>
+                    {slot.q.firms && slot.q.firms.length > 0 && <span className="font-mono text-[10px] text-violet-light">{slot.q.firms.join(', ')}</span>}
+                  </div>
+                  <p className="text-sm leading-relaxed">{slot.q.prompt}</p>
+                </article>
+
+                {/* answered probes (read-only) */}
+                {PROBES.slice(0, probeStep).map((p) => (
+                  <div key={p.key} className="rounded-lg border border-steel bg-bg p-4 space-y-1">
+                    <p className="font-mono text-[11px] text-violet-light">{p.label}</p>
+                    <p className="text-xs text-muted italic">“{p.ask}”</p>
+                    <p className="text-sm whitespace-pre-wrap mt-1">{slot.probes[p.key]?.trim() || '(left blank)'}</p>
+                  </div>
+                ))}
+
+                {/* active probe */}
+                <div className="rounded-lg border border-violet/50 bg-violet/5 p-4 space-y-2">
+                  <p className="font-mono text-[11px] uppercase tracking-wider text-violet-light">
+                    Interviewer · {PROBES[probeStep].label} <span className="text-muted">({probeStep + 1}/{PROBES.length})</span>
+                  </p>
+                  <p className="text-sm font-medium">{PROBES[probeStep].ask}</p>
+                  <textarea
+                    ref={taRef}
+                    className={`${inputCls} w-full min-h-[120px] leading-relaxed`}
+                    placeholder={PROBES[probeStep].placeholder}
+                    value={cur}
+                    onChange={(e) => setCur(e.target.value)}
+                  />
+                  <div className="flex items-center gap-2">
+                    <button type="button" className={btn2Cls} disabled={probeStep === 0} onClick={probeBack}>← Back</button>
+                    {probeStep < PROBES.length - 1 ? (
+                      <button type="button" className={btnCls} onClick={probeForward}>Continue →</button>
+                    ) : stage < 3 ? (
+                      <button type="button" className={btnCls} onClick={probeForward}>Next stage →</button>
+                    ) : (
+                      <button type="button" className={btnCls} onClick={finishInterview}>Finish &amp; get verdict →</button>
+                    )}
+                    <span className="ml-auto font-mono text-[11px] text-muted">Narrate as you would out loud</span>
+                  </div>
+                </div>
+              </>
+            );
+          })()
+        )}
       </div>
     );
   }
 
-  // ---------- grading ----------
+  // ───────────────────────── grading ─────────────────────────
   if (phase === 'grading') {
     return (
       <div className="space-y-4">
@@ -421,99 +525,255 @@ export default function Mock() {
           ) : (
             <>
               <p className="font-mono text-sm text-muted">
-                Grading answer {gradeProgress} / {results.length}
+                Grading brainteaser {gradeProgress} / {slots.length}
                 {settings.backend === 'webllm' ? ' on your device' : ` with ${settings.apiModel}`}…
               </p>
               <div className="h-1.5 rounded-full bg-steel overflow-hidden">
-                <div className="h-full bg-violet rounded-full transition-all" style={{ width: `${(gradeProgress / results.length) * 100}%` }} />
+                <div className="h-full bg-violet rounded-full transition-all" style={{ width: `${(gradeProgress / slots.length) * 100}%` }} />
               </div>
             </>
-          )}
-          {settings.backend === 'webllm' && (
-            <p className="font-mono text-[10px] text-muted">In-browser models are slower than cloud APIs — a few seconds per answer is normal.</p>
           )}
         </div>
       </div>
     );
   }
 
-  // ---------- report ----------
-  const allScored = results.every((r) => r.grade);
-  const total = results.reduce((a, r) => a + (r.grade?.score ?? 0), 0);
-  const pct = allScored ? Math.round((total / (results.length * 5)) * 100) : null;
+  // ───────────────────────── report ─────────────────────────
+  return <Report
+    slots={slots}
+    game={game}
+    selfMode={selfMode}
+    gradeError={gradeError}
+    setSelfScore={setSelfScore}
+    onSaveBest={(pct) => setBestScore((b) => (b === null || pct > b ? pct : b))}
+    bestScore={bestScore}
+    onRestart={() => setPhase('config')}
+  />;
+}
+
+// ───────────────────────── report component ─────────────────────────
+
+interface Dimension { label: string; pct: number; note: string; }
+
+function Report({
+  slots,
+  game,
+  selfMode,
+  gradeError,
+  setSelfScore,
+  onSaveBest,
+  bestScore,
+  onRestart,
+}: {
+  slots: Slot[];
+  game: MarketMakerSummary | null;
+  selfMode: boolean;
+  gradeError: string;
+  setSelfScore: (i: number, s: number) => void;
+  onSaveBest: (pct: number) => void;
+  bestScore: number | null;
+  onRestart: () => void;
+}) {
+  const scores = slots.map(getScore);
+  const allScored = scores.every((s) => s != null) && game != null;
+
+  // ---- dimensions ----
+  const meanScore = scores.reduce<number>((a, s) => a + (s ?? 0), 0) / Math.max(1, slots.length);
+  const problemSolving = Math.round((meanScore / 5) * 100);
+
+  const commPer = slots.map((s) => {
+    let m = 0;
+    if ((s.probes.initial?.trim().length ?? 0) >= 15) m++;
+    if ((s.probes.approach?.trim().length ?? 0) >= 15) m++;
+    if ((s.probes.work?.trim().length ?? 0) >= 15) m++;
+    if ((s.probes.final?.trim().length ?? 0) >= 1) m++;
+    return m / 4;
+  });
+  const communication = Math.round((commPer.reduce((a, b) => a + b, 0) / Math.max(1, slots.length)) * 100);
+
+  const hitRate = game ? game.hits / game.rounds : 0;
+  const pnlNorm = game ? clamp(game.total / (game.rounds * 80), 0, 1) : 0;
+  const mmEv = Math.round((0.5 * hitRate + 0.5 * pnlNorm) * 100);
+
+  const finalsAnswered = slots.filter((s) => (s.probes.final?.trim().length ?? 0) > 0).length / Math.max(1, slots.length);
+  const completion =
+    slots.reduce((a, s) => a + PROBES.filter((p) => (s.probes[p.key]?.trim().length ?? 0) > 0).length / 4, 0) /
+    Math.max(1, slots.length);
+  const composure = Math.round((completion * 0.4 + finalsAnswered * 0.3 + hitRate * 0.3) * 100);
+
+  const overall = Math.round(0.4 * problemSolving + 0.25 * communication + 0.25 * mmEv + 0.1 * composure);
+
+  const tier =
+    overall >= 80 ? { label: 'Strong hire', color: 'text-open' }
+    : overall >= 65 ? { label: 'Hire', color: 'text-open' }
+    : overall >= 50 ? { label: 'Lean hire', color: 'text-soon' }
+    : { label: 'No hire', color: 'text-closed' };
+
+  useEffect(() => {
+    if (allScored) onSaveBest(overall);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allScored, overall]);
+
+  const dims: Dimension[] = [
+    { label: 'Problem-solving & rigour', pct: problemSolving, note: 'Correctness and soundness of method across the three brainteasers.' },
+    { label: 'Communication & structure', pct: communication, note: 'How fully you narrated initial thoughts, approach and working — not just the answer.' },
+    { label: 'Market-making & EV', pct: mmEv, note: `Quoting round: ${game ? `${game.hits}/${game.rounds} markets contained the value, P&L ${game.total >= 0 ? '+' : ''}${game.total}` : '—'}.` },
+    { label: 'Composure & completeness', pct: composure, note: 'Did you finish every part and commit to final answers under time.' },
+  ];
+
+  // ---- what to drill ----
+  const weakest = slots.reduce((lo, s) => ((getScore(s) ?? 0) < (getScore(lo) ?? 0) ? s : lo), slots[0]);
+  const drills: { text: string; to: string }[] = [];
+  if (problemSolving < 70 && weakest) drills.push({ text: `Drill ${weakest.q.category} in the question bank`, to: '/questions' });
+  if (mmEv < 65) drills.push({ text: 'Sharpen quoting in the Market Maker & Hidden Dice games', to: '/games' });
+  if (communication < 65) drills.push({ text: 'Practise narrating method-first; re-run a mock and fill every probe', to: '/mock' });
+  if (drills.length === 0) drills.push({ text: 'Keep your edge — try a harder mixed set in the question bank', to: '/questions' });
+
+  const strengths = dims.filter((d) => d.pct >= 70).map((d) => d.label);
+  const improvements = dims.filter((d) => d.pct < 55).map((d) => d.label);
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-bold">Interview Report</h1>
+      <header className="space-y-2">
+        <h1 className="text-2xl font-bold">Interview Verdict</h1>
         {gradeError && (
-          <p className="mt-2 font-mono text-xs text-closed">Automated grading failed ({gradeError}) — falling back to self-grading below.</p>
+          <p className="font-mono text-xs text-closed">Automated grading failed ({gradeError}) — self-grade your brainteasers below to unlock the verdict.</p>
         )}
-        {selfMode ? (
-          <p className="mt-2 text-sm text-muted">Self-grade each answer against the model solution (0–5), then read your total.</p>
-        ) : (
-          <p className="mt-2 font-mono text-sm">
-            Score: <span className={pct! >= 70 ? 'text-open' : pct! >= 45 ? 'text-soon' : 'text-closed'}>{total}/{results.length * 5} ({pct}%)</span>
-            {pct !== null && bestScore !== null && pct >= bestScore && <span className="text-soon"> ★ best</span>}
-          </p>
+        {selfMode && !allScored && (
+          <p className="text-sm text-muted">Self-grade each brainteaser (0–5) against its worked solution to compute your verdict.</p>
+        )}
+        {allScored && (
+          <div className="rounded-lg border border-steel bg-panel p-5">
+            <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+              <span className={`text-2xl font-bold ${tier.color}`}>{tier.label}</span>
+              <span className="font-mono text-sm text-muted">overall {overall}%</span>
+              {bestScore !== null && overall >= bestScore && <span className="font-mono text-xs text-soon">★ best</span>}
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {dims.map((d) => (
+                <div key={d.label}>
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-sm font-medium">{d.label}</span>
+                    <span className="font-mono text-[11px] text-muted">{d.pct}%</span>
+                  </div>
+                  <div className="mt-1 h-1.5 rounded bg-steel/40 overflow-hidden">
+                    <div className={`h-full ${d.pct >= 70 ? 'bg-open' : d.pct >= 50 ? 'bg-soon' : 'bg-closed'}`} style={{ width: `${d.pct}%` }} />
+                  </div>
+                  <p className="mt-1 text-[11px] text-muted leading-snug">{d.note}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-5 grid gap-4 sm:grid-cols-2 border-t border-steel pt-4">
+              <div>
+                <p className="font-mono text-[11px] uppercase tracking-wider text-muted mb-1">Strengths</p>
+                {strengths.length ? (
+                  <ul className="text-sm space-y-1">{strengths.map((s) => <li key={s} className="flex gap-2"><span className="text-open">▸</span>{s}</li>)}</ul>
+                ) : <p className="text-sm text-muted">No dimension cleared 70% — see what to drill.</p>}
+              </div>
+              <div>
+                <p className="font-mono text-[11px] uppercase tracking-wider text-muted mb-1">Biggest gaps</p>
+                {improvements.length ? (
+                  <ul className="text-sm space-y-1">{improvements.map((s) => <li key={s} className="flex gap-2"><span className="text-closed">▸</span>{s}</li>)}</ul>
+                ) : <p className="text-sm text-muted">No glaring weaknesses — solid across the board.</p>}
+              </div>
+            </div>
+
+            <div className="mt-4 border-t border-steel pt-4">
+              <p className="font-mono text-[11px] uppercase tracking-wider text-muted mb-2">What to drill next</p>
+              <ul className="space-y-1.5 text-sm">
+                {drills.map((d) => (
+                  <li key={d.text} className="flex gap-2">
+                    <span className="text-violet">▸</span>
+                    <Link to={d.to} className="text-violet-light hover:underline">{d.text} →</Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
         )}
       </header>
 
+      {/* per-brainteaser breakdown */}
       <div className="space-y-4">
-        {results.map((r) => (
-          <article key={r.q.id} className="rounded-lg border border-steel bg-panel p-5 space-y-3">
+        {slots.map((s, i) => (
+          <article key={s.q.id} className="rounded-lg border border-steel bg-panel p-5 space-y-3">
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="font-semibold mr-auto">{r.q.title}</h3>
-              <span className="font-mono text-[11px] text-muted border border-steel rounded px-2 py-0.5">{r.q.category}</span>
-              {r.grade && !selfMode && (
-                <span className={`font-mono text-xs ${r.grade.score >= 4 ? 'text-open' : r.grade.score >= 2 ? 'text-soon' : 'text-closed'}`}>
-                  {r.grade.score}/5 · {r.grade.verdict}
+              <span className="font-mono text-[11px] text-violet-light">{s.role}</span>
+              <h3 className="font-semibold mr-auto">{s.q.title}</h3>
+              <span className="font-mono text-[11px] text-muted border border-steel rounded px-2 py-0.5">{s.q.category}</span>
+              {getScore(s) != null && (
+                <span className={`font-mono text-xs ${(getScore(s) ?? 0) >= 4 ? 'text-open' : (getScore(s) ?? 0) >= 2 ? 'text-soon' : 'text-closed'}`}>
+                  {getScore(s)}/5{s.grade?.verdict ? ` · ${s.grade.verdict}` : ''}
                 </span>
               )}
             </div>
-            <p className="text-sm leading-relaxed">{r.q.prompt}</p>
-            <div className="rounded border border-steel bg-bg p-3">
-              <p className="font-mono text-[11px] text-muted mb-1">Your answer</p>
-              <p className="text-sm whitespace-pre-wrap">{r.answer.trim() || '(left blank)'}</p>
+            <p className="text-sm leading-relaxed">{s.q.prompt}</p>
+
+            <div className="space-y-2">
+              {PROBES.map((p) => (
+                <div key={p.key} className="rounded border border-steel bg-bg p-3">
+                  <p className="font-mono text-[11px] text-muted">{p.label}</p>
+                  <p className="text-sm whitespace-pre-wrap">{s.probes[p.key]?.trim() || '(left blank)'}</p>
+                </div>
+              ))}
             </div>
-            {r.grade && !selfMode && r.grade.feedback && (
+
+            {s.grade && !selfMode && s.grade.feedback && (
               <div className="rounded border border-violet/40 bg-violet/10 p-3">
                 <p className="font-mono text-[11px] text-violet-light mb-1">Interviewer feedback</p>
-                <p className="text-sm leading-relaxed">{r.grade.feedback}</p>
+                <p className="text-sm leading-relaxed">{s.grade.feedback}</p>
               </div>
             )}
+
             <details className="text-sm">
-              <summary className="cursor-pointer font-mono text-xs text-violet-light hover:underline">Reference: {r.q.answer}</summary>
+              <summary className="cursor-pointer font-mono text-xs text-violet-light hover:underline">Reference: {s.q.answer}</summary>
               <div className="mt-2 space-y-2 leading-relaxed border-t border-steel pt-2">
-                {r.q.solution.map((p, i) => <p key={i}>{p}</p>)}
+                {s.q.solution.map((p, j) => <p key={j}>{p}</p>)}
               </div>
             </details>
+
             {selfMode && (
               <div className="flex items-center gap-2">
                 <span className="font-mono text-[11px] text-muted">Self-grade:</span>
-                {[0, 1, 2, 3, 4, 5].map((s) => (
+                {[0, 1, 2, 3, 4, 5].map((sc) => (
                   <button
-                    key={s}
+                    key={sc}
                     type="button"
-                    onClick={() => setSelfScore(r.q.id, s)}
-                    className={`font-mono text-xs w-7 h-7 rounded border ${r.grade?.score === s ? 'border-violet bg-violet text-white' : 'border-steel text-muted hover:border-violet-light'}`}
+                    onClick={() => setSelfScore(i, sc)}
+                    className={`font-mono text-xs w-7 h-7 rounded border ${s.selfScore === sc ? 'border-violet bg-violet text-white' : 'border-steel text-muted hover:border-violet-light'}`}
                   >
-                    {s}
+                    {sc}
                   </button>
                 ))}
               </div>
             )}
           </article>
         ))}
+
+        {/* market-making round summary */}
+        {game && (
+          <article className="rounded-lg border border-steel bg-panel p-5 space-y-2">
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold mr-auto">Market-making round</h3>
+              <span className={`font-mono text-xs ${mmEv >= 70 ? 'text-open' : mmEv >= 50 ? 'text-soon' : 'text-closed'}`}>{mmEv}%</span>
+            </div>
+            <p className="font-mono text-sm">
+              {game.hits}/{game.rounds} markets contained the value · P&amp;L{' '}
+              <span className={game.total >= 0 ? 'text-open' : 'text-closed'}>{game.total >= 0 ? '+' : ''}{game.total}</span>
+            </p>
+            <p className="text-sm text-muted">
+              {hitRate >= 0.8
+                ? 'Strong: you contained nearly every market. Keep tightening spreads where you were confident.'
+                : hitRate >= 0.5
+                ? 'Decent hit-rate. The edge now is calibrating width — tighter when sure, wider on genuine uncertainty.'
+                : 'You got picked off too often. Widen on unfamiliar quantities and anchor your fair before quoting.'}
+            </p>
+          </article>
+        )}
       </div>
 
-      {selfMode && allScored && (
-        <p className="font-mono text-sm">
-          Self-graded total: <span className="text-violet-light">{total}/{results.length * 5} ({Math.round((total / (results.length * 5)) * 100)}%)</span>
-        </p>
-      )}
-
-      <button type="button" className={btnCls} onClick={() => setPhase('config')}>New interview</button>
+      <button type="button" className={btnCls} onClick={onRestart}>New interview</button>
     </div>
   );
 }
