@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
 import { usePersistentState } from '../lib/storage';
+import ReflectionGate, { ReflectToggle, type ReflectSpec } from '../components/ReflectionGate';
+
+const r2 = (x: number) => Math.round(x * 100);
 
 // ---------- deck ----------
 
@@ -189,10 +192,61 @@ function DistInput({
   );
 }
 
+// ---------- reflection: judging the Bayesian update ----------
+
+function buildUpdateReflection(c: number, prior: number[], post: number[], bayes: number[], interviewer: number): ReflectSpec {
+  const agree = interviewer === c;
+  const priorOwn = prior[2] ?? 0;
+  const postOwn = post[2] ?? 0;
+  const bayesOwn = bayes[2] ?? 0;
+  const move = postOwn - priorOwn;
+  const ideal = bayesOwn - priorOwn;
+  const gap = postOwn - bayesOwn;
+
+  const chips = [
+    { id: 'confirm', label: 'He agreed with me, so I raised my confidence', sound: agree && move > 0.02 },
+    { id: 'discount', label: 'He named a different count, so I shifted weight his way', sound: !agree && move < -0.02 },
+    { id: 'noover', label: "He's only right 80%, so I didn't overreact", sound: Math.abs(gap) <= 0.1 },
+    { id: 'trust', label: 'I trust my own count and held basically firm', sound: Math.abs(move) < 0.05 && Math.abs(ideal) < 0.08 },
+  ];
+
+  let tier: ReflectSpec['verdict']['tier'];
+  let headline: string;
+  if (Math.abs(gap) <= 0.08) { tier = 'sound'; headline = 'your update tracked Bayes'; }
+  else if (gap > 0.08) { tier = gap > 0.2 ? 'mistake' : 'mixed'; headline = 'you held too much on your own count'; }
+  else { tier = gap < -0.2 ? 'mistake' : 'mixed'; headline = 'you moved more than the evidence warranted'; }
+
+  const points: string[] = [];
+  points.push(
+    `${agree ? 'He agreed with you' : `He said a different count (${interviewer >= 0 ? '+' : ''}${interviewer})`} — an 80%-accurate source ${agree ? 'should push you up' : 'should pull some weight off your count'}.`,
+  );
+  points.push(`You moved P(your count) ${r2(priorOwn)}% → ${r2(postOwn)}%. A Bayesian with your prior lands ~${r2(bayesOwn)}%.`);
+  if (gap > 0.08) points.push('Disagreement from a mostly-right interviewer must cost you probability; confirmation should add it. Size the move to his 80% reliability.');
+  else if (gap < -0.08) points.push("He's wrong 20% of the time — don't torch a carefully built count (or over-pile on agreement) off one sentence.");
+  else points.push('Well sized — you respected the evidence without crumbling or ignoring it.');
+
+  return {
+    question: agree
+      ? 'The interviewer agreed with your count. Why did you update the way you did?'
+      : 'The interviewer named a different count. Why did you update the way you did?',
+    facts: [
+      { label: 'Your count', value: `${c >= 0 ? '+' : ''}${c}` },
+      { label: 'Interviewer', value: `${interviewer >= 0 ? '+' : ''}${interviewer}` },
+      { label: 'P(yours)', value: `${r2(priorOwn)}%→${r2(postOwn)}%` },
+      { label: 'Bayes', value: `~${r2(bayesOwn)}%` },
+    ],
+    chips,
+    verdict: { tier, headline, points },
+  };
+}
+
 // ---------- main component ----------
 
 export default function CountingCards() {
   const [best, setBest] = usePersistentState<number | null>('qh:hiscore:counting-cards', null);
+  const [reflect, setReflect] = usePersistentState<boolean>('qh:reflect', false);
+  const [pendingReflect, setPendingReflect] = useState<ReflectSpec | null>(null);
+  const [reflectThen, setReflectThen] = useState<Phase>('reveal');
 
   const [phase, setPhase] = useState<Phase>('intro');
   const [round, setRound] = useState(0);
@@ -285,12 +339,14 @@ export default function CountingCards() {
       post: distFractions(),
       bayes: bayesPosterior(c, savedPrior, interviewer),
     };
-    if (mode === 'ace') {
-      setRecords((r) => [...r, rec]);
-      setPhase('aceCount');
+    setRecords((r) => [...r, rec]);
+    const nextPhase: Phase = mode === 'ace' ? 'aceCount' : 'reveal';
+    // occasional reflection on the Bayesian-update step (first basic + first ace round)
+    if (reflect && (round === 0 || round === 3)) {
+      setReflectThen(nextPhase);
+      setPendingReflect(buildUpdateReflection(c, savedPrior, rec.post, rec.bayes, interviewer));
     } else {
-      setRecords((r) => [...r, rec]);
-      setPhase('reveal');
+      setPhase(nextPhase);
     }
   }
 
@@ -435,6 +491,16 @@ export default function CountingCards() {
       </div>
 
       <div className="rounded-lg border border-steel bg-panel p-5 space-y-5">
+        {pendingReflect ? (
+          <ReflectionGate
+            spec={pendingReflect}
+            onContinue={() => {
+              setPhase(reflectThen);
+              setPendingReflect(null);
+            }}
+          />
+        ) : (
+        <>
         {phase === 'intro' && (
           <div className="space-y-4">
             <h3 className="font-mono text-lg text-violet-light">Counting Cards</h3>
@@ -486,6 +552,7 @@ export default function CountingCards() {
                 <span>5.0s (gentle)</span>
               </span>
             </label>
+            <ReflectToggle on={reflect} onChange={setReflect} />
             <button type="button" className={btnCls} onClick={() => { setRound(0); setRecords([]); setPhase('ready'); }}>
               Start →
             </button>
@@ -683,6 +750,8 @@ export default function CountingCards() {
             </div>
           );
         })()}
+        </>
+        )}
       </div>
     </div>
   );

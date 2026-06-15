@@ -49,7 +49,19 @@ function sample(): Quantity[] {
   return [...pool].sort(() => Math.random() - 0.5).slice(0, ROUNDS);
 }
 
-export default function MarketMaker() {
+export interface MarketMakerSummary {
+  total: number;
+  hits: number;
+  rounds: number;
+}
+
+export default function MarketMaker({
+  embedded = false,
+  onComplete,
+}: {
+  embedded?: boolean;
+  onComplete?: (summary: MarketMakerSummary) => void;
+} = {}) {
   const [high, setHigh] = usePersistentState<number | null>('qh:hiscore:market-maker', null);
   const [qs, setQs] = useState<Quantity[]>(sample);
   const [round, setRound] = useState(0);
@@ -195,13 +207,23 @@ export default function MarketMaker() {
                 </li>
               ))}
             </ul>
-            <button
-              type="button"
-              onClick={restart}
-              className="font-mono text-sm px-4 py-2 rounded bg-violet text-white hover:bg-violet-light hover:text-bg transition-colors"
-            >
-              Play again
-            </button>
+            {embedded ? (
+              <button
+                type="button"
+                onClick={() => onComplete?.({ total, hits: results.filter((r) => r.hit).length, rounds: ROUNDS })}
+                className="font-mono text-sm px-4 py-2 rounded bg-violet text-white hover:bg-violet-light hover:text-bg transition-colors"
+              >
+                Submit market to interviewer →
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={restart}
+                className="font-mono text-sm px-4 py-2 rounded bg-violet text-white hover:bg-violet-light hover:text-bg transition-colors"
+              >
+                Play again
+              </button>
+            )}
           </div>
         )}
       </div>
