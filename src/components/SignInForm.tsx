@@ -37,17 +37,17 @@ export default function SignInForm() {
     return (
       <form onSubmit={verify} className="space-y-2">
         <p className="text-sm text-muted">
-          Enter the 6-digit code sent to <span className="text-fg">{email}</span>.
+          Enter the code sent to <span className="text-fg">{email}</span>.
         </p>
         <input
           inputMode="numeric"
           autoComplete="one-time-code"
-          maxLength={6}
+          maxLength={10}
           required
           value={code}
           onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
-          placeholder="123456"
-          className="w-full bg-bg border border-steel rounded px-3 py-2 text-lg font-mono tracking-[0.4em] text-center"
+          placeholder="code from email"
+          className="w-full bg-bg border border-steel rounded px-3 py-2 text-lg font-mono tracking-[0.3em] text-center"
         />
         <button
           type="submit"
