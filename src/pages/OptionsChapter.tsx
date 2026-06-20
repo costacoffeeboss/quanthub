@@ -3,11 +3,13 @@ import { chapters, chapterById, chapterIndex, PASS_PCT } from '../data/optionsCo
 import { isUnlocked, useOptionsProgress, useUnlockAll } from '../lib/optionsProgress';
 import { lessons } from './options/lessons';
 import Quiz from '../components/options/Quiz';
+import { Paywall, useEntitlement } from '../lib/premium';
 
 export default function OptionsChapter() {
   const { chapterId = '' } = useParams();
   const [progress, setProgress] = useOptionsProgress();
   const [unlockAll] = useUnlockAll();
+  const ent = useEntitlement();
 
   const chapter = chapterById(chapterId);
 
@@ -27,6 +29,21 @@ export default function OptionsChapter() {
   const next = chapters[idx + 1];
   const prev = chapters[idx - 1];
   const result = progress[chapter.id];
+
+  // Chapter 1 is free; everything after it is Pro.
+  if (idx >= 1 && ent.loading) {
+    return <p className="font-mono text-sm text-muted">Checking access…</p>;
+  }
+  if (idx >= 1 && !ent.premium) {
+    return (
+      <div className="space-y-4 max-w-2xl">
+        <Link to="/options" className="font-mono text-xs text-violet-light hover:underline">
+          ← Back to the course
+        </Link>
+        <Paywall feature={`Chapter ${chapter.number} of the options course`} />
+      </div>
+    );
+  }
 
   if (!unlocked) {
     return (

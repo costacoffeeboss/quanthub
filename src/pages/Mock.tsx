@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { allQuestions, type Question } from '../data/questionBank';
 import { usePersistentState } from '../lib/storage';
+import { Premium } from '../lib/premium';
 import HoldemMarket, { type HoldemSummary } from '../games/HoldemMarket';
 import {
   gradeWithApi,
@@ -137,6 +138,14 @@ const getScore = (s: Slot): number | undefined => s.grade?.score ?? s.selfScore;
 const slotIdxForStage = (stage: number) => (stage === 3 ? 2 : stage);
 
 export default function Mock() {
+  return (
+    <Premium feature="The mock interview">
+      <MockInner />
+    </Premium>
+  );
+}
+
+function MockInner() {
   const [phase, setPhase] = useState<Phase>('config');
   const [settings, setSettings] = usePersistentState<GradingSettings>('qh:grading-settings', defaultSettings);
 

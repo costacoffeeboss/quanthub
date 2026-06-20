@@ -8,6 +8,7 @@ import {
 } from '../data/firms';
 import { profileIdForFirm } from '../data/firms-detail';
 import { usePersistentState } from '../lib/storage';
+import { useEntitlement, LockBadge } from '../lib/premium';
 
 const stageColor: Record<ApplicationStage, string> = {
   'Not applied': 'text-muted',
@@ -31,6 +32,7 @@ export default function Trackr() {
   const [locFilter, setLocFilter] = useState('All');
   const [stageFilter, setStageFilter] = useState('All');
   const [favOnly, setFavOnly] = useState(false);
+  const { premium } = useEntitlement();
 
   const locations = useMemo(
     () => ['All', ...Array.from(new Set(programmes.map((p) => p.location))).sort()],
@@ -82,6 +84,16 @@ export default function Trackr() {
           ⚠ Windows, deadlines and comp are approximate, not live — verify on each firm&apos;s careers page.
         </p>
       </header>
+
+      {!premium && (
+        <div className="flex items-center gap-2 rounded border border-violet/40 bg-plum/15 px-3 py-2 text-sm">
+          <LockBadge />
+          <span className="text-muted">
+            Browsing is free. Saving your <span className="text-fg">status, stars and notes</span> is a Pro
+            feature — upgrade to keep a personal tracker that follows you.
+          </span>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filters">
         <select aria-label="Programme type" className={selectCls} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
@@ -159,11 +171,12 @@ export default function Trackr() {
                 <td className="p-3 align-top">
                   <button
                     type="button"
+                    disabled={!premium}
                     aria-label={isFav(p) ? `Unfavourite ${p.firm} ${p.type}` : `Favourite ${p.firm} ${p.type}`}
                     aria-pressed={isFav(p)}
-                    title={isFav(p) ? 'Remove from favourites' : 'Mark as favourite'}
+                    title={premium ? (isFav(p) ? 'Remove from favourites' : 'Mark as favourite') : 'Favouriting is a Pro feature'}
                     onClick={() => toggleFav(p.id)}
-                    className={`text-base leading-none transition-colors ${
+                    className={`text-base leading-none transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                       isFav(p) ? 'text-soon' : 'text-muted/40 hover:text-soon'
                     }`}
                   >
@@ -194,8 +207,9 @@ export default function Trackr() {
                 <td className="p-3 align-top">
                   <input
                     type="text"
+                    disabled={!premium}
                     aria-label={`Notes for ${p.firm} ${p.type}`}
-                    placeholder="add a note…"
+                    placeholder={premium ? 'add a note…' : 'Pro'}
                     value={notes[p.id] ?? ''}
                     onChange={(e) =>
                       setNotes((prev) => {
@@ -205,7 +219,7 @@ export default function Trackr() {
                         return next;
                       })
                     }
-                    className="w-36 bg-bg border border-steel rounded px-2 py-1 text-xs placeholder:text-muted/50 focus:border-violet-light focus:outline-none"
+                    className="w-36 bg-bg border border-steel rounded px-2 py-1 text-xs placeholder:text-muted/50 focus:border-violet-light focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed"
                   />
                 </td>
                 <td className="p-3 align-top">
@@ -221,7 +235,9 @@ export default function Trackr() {
                 <td className="p-3 align-top">
                   <select
                     aria-label={`Status for ${p.firm} ${p.type}`}
-                    className={`bg-bg border border-steel rounded px-2 py-1 font-mono text-xs ${stageColor[stageOf(p)]}`}
+                    disabled={!premium}
+                    title={premium ? undefined : 'Saving your status is a Pro feature'}
+                    className={`bg-bg border border-steel rounded px-2 py-1 font-mono text-xs disabled:opacity-40 disabled:cursor-not-allowed ${stageColor[stageOf(p)]}`}
                     value={stageOf(p)}
                     onChange={(e) =>
                       setStatuses((prev) => ({

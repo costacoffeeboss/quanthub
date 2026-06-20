@@ -2,7 +2,15 @@
   command = "npm run build"
   publish = "dist"
 
-# SPA fallback: let react-router handle client-side routes
+[build.environment]
+  NODE_VERSION = "20"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+# SPA fallback: let react-router handle client-side routes.
+# Not forced, so it never shadows static assets or /.netlify/functions/*.
 [[redirects]]
   from = "/*"
   to = "/index.html"
