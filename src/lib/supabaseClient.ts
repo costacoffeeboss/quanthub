@@ -23,6 +23,10 @@ export const supabase: SupabaseClient | null = isSupabaseConfigured
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: true,
+        // Implicit flow puts the session in the URL fragment so a magic link
+        // works even when the email opens it in a different browser/webview.
+        // (PKCE, the default, only works in the browser that requested it.)
+        flowType: 'implicit',
       },
     })
   : null;

@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import AccountMenu from './AccountMenu';
 
@@ -47,7 +48,9 @@ export default function Layout() {
       </header>
 
       <main className="flex-1 w-full mx-auto max-w-6xl px-4 py-8">
-        <Outlet />
+        <Suspense fallback={<p className="font-mono text-sm text-muted py-12">Loading…</p>}>
+          <Outlet />
+        </Suspense>
       </main>
 
       <footer className="border-t border-steel mt-12">
