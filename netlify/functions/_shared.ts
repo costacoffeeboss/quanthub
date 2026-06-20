@@ -3,6 +3,7 @@
 import Stripe from 'stripe';
 import { createClient, type SupabaseClient, type User } from '@supabase/supabase-js';
 import type { HandlerEvent } from '@netlify/functions';
+import ws from 'ws';
 
 export function getStripe(): Stripe {
   const key = process.env.STRIPE_SECRET_KEY;
@@ -15,7 +16,12 @@ export function getAdmin(): SupabaseClient {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error('SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set');
-  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  return createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    // Node Lambdas have no global WebSocket; hand realtime the ws implementation
+    // so createClient doesn't throw regardless of the runtime's Node version.
+    realtime: { transport: ws as never },
+  });
 }
 
 /** Resolve the signed-in user from the Authorization: Bearer <jwt> header. */
