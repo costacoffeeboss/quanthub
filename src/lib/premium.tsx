@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useAuth } from './auth';
 import { supabase, isSupabaseConfigured } from './supabaseClient';
+import SignInForm from '../components/SignInForm';
 
 /**
  * MASTER SWITCH.
@@ -140,25 +141,28 @@ export function LockBadge({ className = '' }: { className?: string }) {
 
 /**
  * Wrap any premium surface. When entitled (or the feature is off) it renders
- * children; otherwise it renders the paywall. `feature` is used in the copy.
+ * children; otherwise it renders an optional `preview` above the paywall.
+ * `feature` is used in the copy.
  */
-export function Premium({ feature, children }: { feature: string; children: ReactNode }) {
+export function Premium({ feature, preview, children }: { feature: string; preview?: ReactNode; children: ReactNode }) {
   const { premium, loading } = useEntitlement();
   if (loading) {
     return <div className="text-sm text-muted font-mono">Checking access…</div>;
   }
   if (premium) return <>{children}</>;
-  return <Paywall feature={feature} />;
+  return (
+    <>
+      {preview}
+      <Paywall feature={feature} />
+    </>
+  );
 }
 
 export function Paywall({ feature }: { feature: string }) {
   const { user } = useAuth();
   const { refresh } = useEntitlement();
   const [busy, setBusy] = useState<PlanId | null>(null);
-  const [emailSent, setEmailSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { signInWithEmail } = useAuth();
-  const [email, setEmail] = useState('');
 
   // Re-check entitlement when returning from Stripe (success_url adds ?checkout).
   useEffect(() => {
@@ -176,14 +180,6 @@ export function Paywall({ feature }: { feature: string }) {
     }
   }
 
-  async function sendLink(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    const err = await signInWithEmail(email.trim());
-    if (err) setError(err);
-    else setEmailSent(true);
-  }
-
   return (
     <div className="rounded-lg border border-violet/40 bg-plum/15 p-6 max-w-2xl">
       <div className="flex items-center gap-2">
@@ -197,29 +193,9 @@ export function Paywall({ feature }: { feature: string }) {
       </p>
 
       {!user ? (
-        <div className="mt-5">
-          {emailSent ? (
-            <p className="text-sm text-open font-mono">✓ Check your email for a sign-in link.</p>
-          ) : (
-            <form onSubmit={sendLink} className="flex flex-wrap items-end gap-2">
-              <div>
-                <label className="font-mono text-[11px] uppercase tracking-wider text-muted block mb-1">
-                  Sign in to continue
-                </label>
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@email.com"
-                  className="bg-bg border border-steel rounded px-3 py-2 text-sm w-64"
-                />
-              </div>
-              <button type="submit" className="rounded-md bg-violet px-4 py-2 text-sm font-medium text-white hover:bg-violet/90">
-                Email me a link
-              </button>
-            </form>
-          )}
+        <div className="mt-5 max-w-sm">
+          <p className="font-mono text-[11px] uppercase tracking-wider text-muted mb-2">Sign in to continue</p>
+          <SignInForm />
         </div>
       ) : (
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
