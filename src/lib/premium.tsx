@@ -123,10 +123,9 @@ export async function openBillingPortal(): Promise<void> {
  * Stripe (or they will mislead users). The server maps `id` → a price via env.
  */
 export const PLANS: { id: PlanId; name: string; price: string; cadence: string; blurb: string; recurring: boolean }[] = [
-  { id: 'monthly', name: 'Monthly', price: '£—', cadence: '/ month', blurb: 'Full access, cancel anytime.', recurring: true },
-  { id: 'annual', name: 'Annual', price: '£—', cadence: '/ year', blurb: 'Best value for a full application cycle.', recurring: true },
-  { id: 'week', name: '1-week pass', price: '£—', cadence: 'one-off', blurb: 'Cram before a specific interview.', recurring: false },
-  { id: 'month', name: '1-month pass', price: '£—', cadence: 'one-off', blurb: 'A single month, no subscription.', recurring: false },
+  { id: 'monthly', name: 'Monthly', price: '£40', cadence: '/ month', blurb: 'Full access, cancel anytime.', recurring: true },
+  { id: 'annual', name: 'Annual', price: '£200', cadence: '/ year', blurb: 'Best value — under £17/month across a full cycle.', recurring: true },
+  { id: 'week', name: '1-week pass', price: '£25', cadence: 'one-off', blurb: 'Cram before a specific interview — no subscription.', recurring: false },
 ];
 
 export function LockBadge({ className = '' }: { className?: string }) {
