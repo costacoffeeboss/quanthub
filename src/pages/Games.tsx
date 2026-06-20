@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Premium, LockBadge, useEntitlement } from '../lib/premium';
 import MarketMaker from '../games/MarketMaker';
 import MentalMath from '../games/MentalMath';
 import DiceEV from '../games/DiceEV';
@@ -65,8 +66,12 @@ const games = [
 
 type GameId = (typeof games)[number]['id'];
 
+// The complicated games are Pro; the rest stay free.
+const PREMIUM_GAMES = new Set<GameId>(['counting-cards', 'adverse-selection', 'holdem']);
+
 export default function Games() {
   const [active, setActive] = useState<GameId>('counting-cards');
+  const { premium } = useEntitlement();
 
   return (
     <div className="space-y-6">
@@ -91,8 +96,11 @@ export default function Games() {
                 : 'border-steel bg-panel/50 hover:border-violet-light'
             }`}
           >
-            <span className={`font-mono text-sm ${active === g.id ? 'text-violet-light' : 'text-fg'}`}>
-              {g.name}
+            <span className="flex items-center gap-2">
+              <span className={`font-mono text-sm ${active === g.id ? 'text-violet-light' : 'text-fg'}`}>
+                {g.name}
+              </span>
+              {!premium && PREMIUM_GAMES.has(g.id) && <LockBadge />}
             </span>
             <p className="mt-1 text-xs text-muted">{g.blurb}</p>
           </button>
@@ -100,9 +108,9 @@ export default function Games() {
       </div>
 
       <div role="tabpanel">
-        {active === 'counting-cards' && <CountingCards />}
-        {active === 'adverse-selection' && <AdverseSelection />}
-        {active === 'holdem' && <HoldemMarket />}
+        {active === 'counting-cards' && <Premium feature="Counting Cards"><CountingCards /></Premium>}
+        {active === 'adverse-selection' && <Premium feature="Adverse Selection"><AdverseSelection /></Premium>}
+        {active === 'holdem' && <Premium feature="Hold'em Market Maker"><HoldemMarket /></Premium>}
         {active === 'hidden-dice' && <HiddenDice />}
         {active === 'kelly' && <KellyGame />}
         {active === 'calibration' && <CalibrationDuel />}

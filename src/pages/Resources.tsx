@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react';
+import { Premium, Paywall, LockBadge, useEntitlement } from '../lib/premium';
 
 // ─────────────────────────────────────────────────────────────────────────
 // The roadmap — a staged plan from a year out to signing
@@ -558,6 +559,8 @@ function SectionIntro({ kicker, children }: { kicker: string; children: ReactNod
 const cvUrl = '/quant-cv-template.docx';
 
 export default function Resources() {
+  const { premium } = useEntitlement();
+  const [cvPay, setCvPay] = useState(false);
   return (
     <div className="space-y-16">
       <header>
@@ -610,11 +613,13 @@ export default function Resources() {
           install a package, and explain the maths and the design as they go. Expand one and work
           through it end to end; the checkpoints tell you when a step is genuinely done.
         </SectionIntro>
-        <div className="mt-6 space-y-4">
-          {projects.map((p) => (
-            <ProjectGuide key={p.id} p={p} />
-          ))}
-        </div>
+        <Premium feature="The coding project guides">
+          <div className="mt-6 space-y-4">
+            {projects.map((p) => (
+              <ProjectGuide key={p.id} p={p} />
+            ))}
+          </div>
+        </Premium>
         <p className="mt-4 text-[13px] text-muted max-w-2xl leading-relaxed">
           More projects (a signal-research notebook, a low-latency order-book exercise) are on the way.
           Two done properly beats six abandoned — finish one before you start the next.
@@ -721,16 +726,31 @@ export default function Resources() {
               tight bullets. Pre-filled with neutral placeholders (John Doe, Example University) so you
               can see exactly what goes where, then overwrite it line by line.
             </p>
-            <a
-              href={cvUrl}
-              download
-              className="mt-4 inline-flex items-center gap-2 rounded-md bg-violet px-4 py-2 text-sm font-medium text-white hover:bg-violet/90 transition-colors"
-            >
-              ↓ Download template
-            </a>
+            {premium ? (
+              <a
+                href={cvUrl}
+                download
+                className="mt-4 inline-flex items-center gap-2 rounded-md bg-violet px-4 py-2 text-sm font-medium text-white hover:bg-violet/90 transition-colors"
+              >
+                ↓ Download template
+              </a>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setCvPay(true)}
+                className="mt-4 inline-flex items-center gap-2 rounded-md border border-violet/50 px-4 py-2 text-sm font-medium text-violet-light hover:bg-violet/10 transition-colors"
+              >
+                <LockBadge /> Unlock the template
+              </button>
+            )}
             <p className="text-[11px] text-muted mt-3">
               Keep it to one page. If it spills over, cut — the discipline is part of the signal.
             </p>
+            {cvPay && !premium && (
+              <div className="mt-4">
+                <Paywall feature="The CV template" />
+              </div>
+            )}
           </aside>
         </div>
       </section>

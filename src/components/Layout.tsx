@@ -1,4 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom';
+import AccountMenu from './AccountMenu';
 
 const tabs = [
   { to: '/', label: 'Home' },
@@ -41,6 +42,7 @@ export default function Layout() {
               ))}
             </ul>
           </nav>
+          <AccountMenu />
         </div>
       </header>
 
