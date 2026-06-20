@@ -69,6 +69,35 @@ type GameId = (typeof games)[number]['id'];
 // The complicated games are Pro; the rest stay free.
 const PREMIUM_GAMES = new Set<GameId>(['counting-cards', 'adverse-selection', 'holdem']);
 
+/**
+ * A looping, muted preview clip shown to free users above the paywall, so they
+ * can see what a Pro game plays like. Drop a ~10s clip at
+ * /previews/<id>.mp4 (see public/previews/README.md). If the file is missing
+ * the clip silently hides and only the paywall shows.
+ */
+function GamePreview({ id, name }: { id: GameId; name: string }) {
+  const [ok, setOk] = useState(true);
+  if (!ok) return null;
+  return (
+    <figure className="mb-4 overflow-hidden rounded-lg border border-steel bg-bg">
+      <video
+        src={`/previews/${id}.mp4`}
+        poster={`/previews/${id}.jpg`}
+        autoPlay
+        loop
+        muted
+        playsInline
+        onError={() => setOk(false)}
+        className="w-full max-h-80 object-cover"
+      />
+      <figcaption className="flex items-center gap-2 px-3 py-2 text-xs text-muted">
+        <span className="font-mono uppercase tracking-wider text-violet-light">Preview</span>
+        A peek at {name} — unlock Pro to play it yourself.
+      </figcaption>
+    </figure>
+  );
+}
+
 export default function Games() {
   const [active, setActive] = useState<GameId>('counting-cards');
   const { premium } = useEntitlement();
@@ -108,9 +137,21 @@ export default function Games() {
       </div>
 
       <div role="tabpanel">
-        {active === 'counting-cards' && <Premium feature="Counting Cards"><CountingCards /></Premium>}
-        {active === 'adverse-selection' && <Premium feature="Adverse Selection"><AdverseSelection /></Premium>}
-        {active === 'holdem' && <Premium feature="Hold'em Market Maker"><HoldemMarket /></Premium>}
+        {active === 'counting-cards' && (
+          <Premium feature="Counting Cards" preview={<GamePreview id="counting-cards" name="Counting Cards" />}>
+            <CountingCards />
+          </Premium>
+        )}
+        {active === 'adverse-selection' && (
+          <Premium feature="Adverse Selection" preview={<GamePreview id="adverse-selection" name="Adverse Selection" />}>
+            <AdverseSelection />
+          </Premium>
+        )}
+        {active === 'holdem' && (
+          <Premium feature="Hold'em Market Maker" preview={<GamePreview id="holdem" name="Hold'em Market Maker" />}>
+            <HoldemMarket />
+          </Premium>
+        )}
         {active === 'hidden-dice' && <HiddenDice />}
         {active === 'kelly' && <KellyGame />}
         {active === 'calibration' && <CalibrationDuel />}

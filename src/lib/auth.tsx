@@ -6,8 +6,10 @@ interface AuthState {
   session: Session | null;
   user: User | null;
   loading: boolean;
-  /** Send a magic-link email. Returns an error message, or null on success. */
+  /** Send a 6-digit sign-in code by email. Returns an error message, or null. */
   signInWithEmail: (email: string) => Promise<string | null>;
+  /** Verify the 6-digit code the user typed. Returns an error message, or null. */
+  verifyOtp: (email: string, token: string) => Promise<string | null>;
   /** Begin Google OAuth (redirect flow). */
   signInWithGoogle: () => Promise<string | null>;
   signOut: () => Promise<void>;
@@ -45,8 +47,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!supabase) return 'Accounts are not configured yet.';
         const { error } = await supabase.auth.signInWithOtp({
           email,
-          options: { emailRedirectTo: redirectTo },
+          options: { emailRedirectTo: redirectTo, shouldCreateUser: true },
         });
+        return error ? error.message : null;
+      },
+      async verifyOtp(email: string, token: string) {
+        if (!supabase) return 'Accounts are not configured yet.';
+        const { error } = await supabase.auth.verifyOtp({ email, token, type: 'email' });
         return error ? error.message : null;
       },
       async signInWithGoogle() {
@@ -76,6 +83,7 @@ export function useAuth(): AuthState {
       user: null,
       loading: false,
       signInWithEmail: async () => 'Accounts are not configured yet.',
+      verifyOtp: async () => 'Accounts are not configured yet.',
       signInWithGoogle: async () => 'Accounts are not configured yet.',
       signOut: async () => {},
     };
