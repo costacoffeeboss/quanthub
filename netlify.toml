@@ -3,7 +3,9 @@
   publish = "dist"
 
 [build.environment]
-  NODE_VERSION = "20"
+  # Node 22 ships a native global WebSocket, which @supabase/supabase-js needs
+  # when it initialises its Realtime client inside the functions.
+  NODE_VERSION = "22"
 
 [functions]
   directory = "netlify/functions"
