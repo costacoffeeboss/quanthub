@@ -3,7 +3,6 @@ import { Premium, LockBadge, useEntitlement } from '../lib/premium';
 import MarketMaker from '../games/MarketMaker';
 import MentalMath from '../games/MentalMath';
 import DiceEV from '../games/DiceEV';
-import CountingCards from '../games/CountingCards';
 import SequenceSprint from '../games/SequenceSprint';
 import AdverseSelection from '../games/AdverseSelection';
 import KellyGame from '../games/KellyGame';
@@ -12,11 +11,6 @@ import CalibrationDuel from '../games/CalibrationDuel';
 import HoldemMarket from '../games/HoldemMarket';
 
 const games = [
-  {
-    id: 'counting-cards',
-    name: 'Counting Cards',
-    blurb: 'Keep the Hi-Lo count, quote your confidence, survive the interviewer. Calibration is the score.',
-  },
   {
     id: 'adverse-selection',
     name: 'Adverse Selection',
@@ -67,7 +61,7 @@ const games = [
 type GameId = (typeof games)[number]['id'];
 
 // The complicated games are Pro; the rest stay free.
-const PREMIUM_GAMES = new Set<GameId>(['counting-cards', 'adverse-selection', 'holdem']);
+const PREMIUM_GAMES = new Set<GameId>(['adverse-selection', 'holdem']);
 
 /**
  * A looping, muted preview clip shown to free users above the paywall, so they
@@ -99,7 +93,7 @@ function GamePreview({ id, name }: { id: GameId; name: string }) {
 }
 
 export default function Games() {
-  const [active, setActive] = useState<GameId>('counting-cards');
+  const [active, setActive] = useState<GameId>('adverse-selection');
   const { premium } = useEntitlement();
 
   return (
@@ -107,7 +101,7 @@ export default function Games() {
       <header>
         <h1 className="text-2xl font-bold">Market Making Games</h1>
         <p className="mt-2 text-muted max-w-2xl text-sm">
-          Ten games drilling the exact skills quant interviews test — counting, market making,
+          Nine games drilling the exact skills quant interviews test — market making,
           calibration, EV, sizing, and speed. High scores stay in this browser.
         </p>
       </header>
@@ -137,11 +131,6 @@ export default function Games() {
       </div>
 
       <div role="tabpanel">
-        {active === 'counting-cards' && (
-          <Premium feature="Counting Cards" preview={<GamePreview id="counting-cards" name="Counting Cards" />}>
-            <CountingCards />
-          </Premium>
-        )}
         {active === 'adverse-selection' && (
           <Premium feature="Adverse Selection" preview={<GamePreview id="adverse-selection" name="Adverse Selection" />}>
             <AdverseSelection />
