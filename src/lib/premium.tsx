@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from './auth';
 import { supabase, isSupabaseConfigured } from './supabaseClient';
 import SignInForm from '../components/SignInForm';
@@ -222,6 +223,13 @@ export function Paywall({ feature }: { feature: string }) {
         </div>
       )}
 
+      {user && (
+        <p className="mt-3 text-[11px] text-muted">
+          By subscribing you agree to our{' '}
+          <Link to="/terms" className="text-violet-light underline">Terms</Link> and{' '}
+          <Link to="/privacy" className="text-violet-light underline">Privacy Policy</Link>.
+        </p>
+      )}
       {error && <p className="mt-3 text-sm text-closed">{error}</p>}
     </div>
   );

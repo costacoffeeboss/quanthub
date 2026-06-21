@@ -12,6 +12,7 @@ const tabs = [
   { to: '/options', label: 'Options' },
   { to: '/games', label: 'Games' },
   { to: '/resources', label: 'Resources' },
+  { to: '/pro', label: 'Pro' },
 ];
 
 export default function Layout() {
@@ -57,11 +58,16 @@ export default function Layout() {
         <div className="mx-auto max-w-6xl px-4 py-6 text-xs text-muted space-y-2">
           <p className="font-mono uppercase tracking-wider text-fg/70">Quant Interview</p>
           <p>
-            Free and independent. Not affiliated with any firm listed. Opening windows and
-            compensation figures are approximate and change every year — always verify on the
-            firm&apos;s own careers page. Your tracker data, scores, and progress are stored only in
-            this browser.
+            Independent and not affiliated with any firm listed. Opening windows and compensation
+            figures are approximate and change every year — always verify on the firm&apos;s own
+            careers page.
           </p>
+          <nav aria-label="Legal" className="flex flex-wrap gap-x-4 gap-y-1 pt-1">
+            <NavLink to="/pro" className="hover:text-violet-light">Pro</NavLink>
+            <NavLink to="/terms" className="hover:text-violet-light">Terms</NavLink>
+            <NavLink to="/privacy" className="hover:text-violet-light">Privacy</NavLink>
+            <NavLink to="/refunds" className="hover:text-violet-light">Refunds</NavLink>
+          </nav>
         </div>
       </footer>
     </div>
