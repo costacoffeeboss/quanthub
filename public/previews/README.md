@@ -6,7 +6,6 @@ paywall. Drop the clips here with these exact names:
 | File | Game |
 |------|------|
 | `adverse-selection.mp4` | Adverse Selection |
-| `counting-cards.mp4` | Counting Cards |
 | `holdem.mp4` | Hold'em Market Maker |
 
 Optional matching `*.jpg` (same name) acts as a poster frame while the video
